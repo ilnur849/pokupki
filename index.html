@@ -62,6 +62,7 @@
   section h2 + .позиция { border-top: 0; }
   .кружок { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--hint);
     display: grid; place-items: center; transition: background .15s, border-color .15s; }
+  .позиция.дело .кружок { border-radius: 6px; }
   .позиция.куплено .кружок { background: var(--done); border-color: var(--done); }
   .позиция.куплено .кружок::after { content: ""; width: 6px; height: 11px; border: solid #fff; border-width: 0 2.5px 2.5px 0;
     transform: translateY(-1px) rotate(45deg); }
@@ -106,7 +107,7 @@
 <div class="шапка">
   <div class="строка"><h1>🛒 Покупки</h1><span class="осталось" id="осталось"></span></div>
   <form class="добавить" id="форма" autocomplete="off">
-    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб…" aria-label="Что добавить">
+    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб, забрать ВБ…" aria-label="Что добавить">
     <button type="submit" aria-label="Добавить">＋</button>
   </form>
 </div>
@@ -186,9 +187,12 @@
     var список = $('список');
     var активные = с.позиции.filter(function (x) { return !x.куплено; });
     var купленные = с.позиции.filter(function (x) { return x.куплено; });
-    $('осталось').textContent = активные.length ? 'осталось ' + активные.length : купленные.length ? 'всё куплено' : '';
+    var дела = активные.filter(function (x) { return x.группа === ГРУППА_ДЕЛ; }).length;
+    var товаров = активные.length - дела;
+    $('осталось').textContent = (товаров ? 'осталось ' + товаров : купленные.length || дела ? 'всё куплено' : '')
+      + (дела ? ' · 🚗 ' + дела : '');
     var подск = (с.подсказки || []).filter(function (п) {
-      return !с.позиции.some(function (x) { return !x.куплено && ключТовара(x.товар) === ключТовара(п.товар); });
+      return п.группа !== ГРУППА_ДЕЛ && !с.позиции.some(function (x) { return !x.куплено && ключТовара(x.товар) === ключТовара(п.товар); });
     });
     var бп = $('подсказки');
     бп.hidden = !подск.length || !!ошибка;
@@ -208,12 +212,13 @@
       return;
     }
     var html = '';
-    (с.группы || ГРУППЫ).forEach(function (г) {
+    ГРУППЫ.forEach(function (г) {
       var свои = активные.filter(function (x) { return (КЛЮЧИ_ГРУПП.indexOf(x.группа) >= 0 ? x.группа : 'прочее') === г.ключ; });
       if (!свои.length) return;
       html += '<section><h2>' + г.значок + ' ' + э(г.имя) + '</h2>' + свои.map(строка).join('') + '</section>';
     });
     if (!активные.length) html += '<div class="пусто"><b>🎉 Всё куплено</b>Можно очистить список кнопкой внизу.</div>';
+    else if (!товаров) html += '<div class="пусто"><b>🎉 Продукты куплены</b>Остались только дела по дороге.</div>';
     if (купленные.length) {
       html += '<section><button class="куплено-шапка" id="куплено-шапка" type="button"><span>✅ Куплено · ' + купленные.length
         + '</span><span>' + (свёрнуто ? 'показать ▾' : 'скрыть ▴') + '</span></button>'
@@ -223,7 +228,7 @@
     $('низ').hidden = !купленные.length;
   }
   function строка(x) {
-    return '<div class="позиция' + (x.куплено ? ' куплено' : '') + '" data-id="' + э(x.id) + '" role="button">'
+    return '<div class="позиция' + (x.куплено ? ' куплено' : '') + (x.группа === ГРУППА_ДЕЛ ? ' дело' : '') + '" data-id="' + э(x.id) + '" role="button">'
       + '<span class="кружок"></span><div class="текст"><div class="имя">' + э(x.товар)
       + (x.колво ? '<span class="колво">' + э(x.колво) + '</span>' : '') + '</div>'
       + (x.заметка ? '<div class="заметка">' + э(x.заметка) + '</div>' : '') + '</div>'
@@ -321,7 +326,10 @@
     var текст = $('поле').value.trim();
     if (!текст) return;
     var позиции = разобратьТекст(текст).map(function (п, i) {
-      return { id: новыйID(Date.now() + i), товар: п.товар, колво: п.колво, заметка: п.заметка, группа: группаПоСловарю(п.товар) };
+      var группа = группаПоСловарю(п.товар);
+      var дело = группа === ГРУППА_ДЕЛ;
+      return { id: новыйID(Date.now() + i), товар: дело ? краткоДело(п.товар) : п.товар, колво: п.колво,
+        заметка: дело && краткоДело(п.товар) !== п.товар ? п.товар : п.заметка, группа: группа };
     });
     if (!позиции.length) return;
     $('поле').value = '';
