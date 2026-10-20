@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Покупки</title>
+<script>
+  // Telegram кладёт подпись (initData) в адрес после «#». Забираем до того, как его тронет
+  // telegram-web-app.js: если тот не загрузится, список всё равно откроется.
+  window.ИЗ_АДРЕСА = (function () {
+    try { return new URLSearchParams(location.hash.slice(1)).get('tgWebAppData') || ''; } catch (e) { return ''; }
+  })();
+</script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="config.js"></script>
+<script src="logika.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #16181d);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #2f80ed);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --section: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --card: var(--tg-theme-section-bg-color, var(--bg));
+    --line: rgba(128, 128, 128, .22);
+    --done: #34a853;
+    --danger: var(--tg-theme-destructive-text-color, #e5484d);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.tg) {
+      --bg: #17191d; --text: #eceef2; --hint: #8b919c; --section: #0f1114; --card: #1d2026; --accent: #4d9bf0;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }   /* иначе display:flex у подсказок и низа перебивает hidden */
+  html, body { margin: 0; background: var(--section); color: var(--text);
+    font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  body { padding: 0 0 calc(84px + env(safe-area-inset-bottom)); min-height: 100vh; }
+  .шапка { position: sticky; top: 0; z-index: 5; background: var(--section); padding: 12px 16px 8px; }
+  .строка { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 700; }
+  .осталось { color: var(--hint); font-size: 15px; white-space: nowrap; }
+  form.добавить { display: flex; gap: 8px; margin-top: 10px; }
+  form.добавить input { flex: 1; min-width: 0; font: inherit; padding: 11px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); outline: none; }
+  form.добавить input:focus { border-color: var(--accent); }
+  form.добавить button, .кнопка { font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 0 16px;
+    background: var(--accent); color: var(--accent-text); min-height: 44px; cursor: pointer; }
+  .подсказки { display: flex; gap: 8px; overflow-x: auto; padding: 10px 16px 2px; scrollbar-width: none; }
+  .подсказки::-webkit-scrollbar { display: none; }
+  .подсказки .ярлык { color: var(--hint); font-size: 13px; align-self: center; white-space: nowrap; }
+  .чип { flex: none; border: 1px dashed var(--accent); color: var(--accent);
+    background: transparent; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+  .чип small { color: var(--hint); }
+  section { margin: 14px 12px 0; background: var(--card); border-radius: 14px; overflow: hidden; }
+  section h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--hint);
+    margin: 0; padding: 10px 14px 4px; }
+  .позиция { display: flex; align-items: center; gap: 12px; padding: 0 4px 0 14px; min-height: 52px;
+    border-top: 1px solid var(--line); cursor: pointer; user-select: none; }
+  section h2 + .позиция { border-top: 0; }
+  .кружок { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--hint);
+    display: grid; place-items: center; transition: background .15s, border-color .15s; }
+  .позиция.куплено .кружок { background: var(--done); border-color: var(--done); }
+  .позиция.куплено .кружок::after { content: ""; width: 6px; height: 11px; border: solid #fff; border-width: 0 2.5px 2.5px 0;
+    transform: translateY(-1px) rotate(45deg); }
+  .текст { flex: 1; min-width: 0; padding: 9px 0; }
+  .имя { overflow-wrap: anywhere; }
+  .колво { color: var(--accent); font-weight: 600; white-space: nowrap; margin-left: 6px; }
+  .заметка { color: var(--hint); font-size: 14px; margin-top: 1px; overflow-wrap: anywhere; }
+  .позиция.куплено .имя { text-decoration: line-through; color: var(--hint); }
+  .позиция.куплено .колво { color: var(--hint); }
+  .ещё { flex: none; width: 44px; height: 44px; border: 0; background: transparent; color: var(--hint); font-size: 20px;
+    border-radius: 10px; cursor: pointer; }
+  .куплено-шапка { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0;
+    background: transparent; color: var(--hint); font: inherit; font-size: 14px; font-weight: 600; padding: 12px 14px; cursor: pointer; }
+  .пусто { text-align: center; color: var(--hint); padding: 48px 28px; }
+  .пусто b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+  .низ { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--section) 70%, transparent); display: flex; gap: 8px; z-index: 6; }
+  .низ .кнопка { flex: 1; background: var(--card); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .статус { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(70px + env(safe-area-inset-bottom));
+    background: rgba(28, 30, 34, .9); color: #fff; font-size: 14px; padding: 8px 14px;
+    border-radius: 999px; max-width: calc(100% - 32px); text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 7; }
+  .статус.видно { opacity: 1; }
+  .лист-фон { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: none; }
+  .лист { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-radius: 18px 18px 0 0; z-index: 11;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: none; max-height: 85vh; overflow-y: auto; }
+  .открыт .лист, .открыт .лист-фон { display: block; }
+  .лист h3 { margin: 0 0 12px; font-size: 18px; overflow-wrap: anywhere; }
+  .лист label { display: block; color: var(--hint); font-size: 13px; margin: 12px 0 4px; }
+  .лист input { width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--section); color: var(--text); }
+  .группы { display: flex; flex-wrap: wrap; gap: 6px; }
+  .группы button { font: inherit; font-size: 14px; border-radius: 999px; padding: 7px 11px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--section); color: var(--text); }
+  .группы button.выбрана { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .ряд-кнопок { display: flex; gap: 8px; margin-top: 16px; }
+  .ряд-кнопок .кнопка { flex: 1; }
+  .кнопка.вторая { background: var(--section); color: var(--text); }
+  .кнопка.опасно { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="шапка">
+  <div class="строка"><h1>🛒 Покупки</h1><span class="осталось" id="осталось"></span></div>
+  <form class="добавить" id="форма" autocomplete="off">
+    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб…" aria-label="Что добавить">
+    <button type="submit" aria-label="Добавить">＋</button>
+  </form>
+</div>
+<div class="подсказки" id="подсказки" hidden></div>
+<main id="список"></main>
+<div class="низ" id="низ" hidden><button class="кнопка" id="очистить" type="button">🧹 Очистить купленное</button></div>
+<div class="статус" id="статус" role="status"></div>
+<div id="окно"><div class="лист-фон" id="фон"></div><div class="лист" id="лист"></div></div>
+
+<script>
+(function () {
+  var tg = (window.Telegram && window.Telegram.WebApp) || null;
+  if (tg && tg.initData) {
+    document.documentElement.classList.add('tg');
+    try { tg.ready(); tg.expand(); } catch (e) { /* старый клиент */ }
+  }
+  var initData = (tg && tg.initData) || window.ИЗ_АДРЕСА || '';
+  var API = window.ПОКУПКИ_API || '';
+  var КЭШ = 'покупки.состояние', ОЧЕРЕДЬ = 'покупки.очередь', СВЁРНУТО = 'покупки.куплено-свёрнуто';
+  var $ = function (id) { return document.getElementById(id); };
+  var э = function (с) { return String(с === undefined || с === null ? '' : с).replace(/[&<>"']/g, function (ч) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ч]; }); };
+  var хранить = {
+    взять: function (к, умолч) { try { var з = localStorage.getItem(к); return з ? JSON.parse(з) : умолч; } catch (e) { return умолч; } },
+    положить: function (к, з) { try { localStorage.setItem(к, JSON.stringify(з)); } catch (e) { /* приватный режим */ } },
+  };
+
+  var сервер = хранить.взять(КЭШ, null);          // последний ответ скрипта
+  var очередь = хранить.взять(ОЧЕРЕДЬ, []);        // действия, ещё не дошедшие до таблицы
+  var свёрнуто = хранить.взять(СВЁРНУТО, true);
+  var ошибка = '';                                  // нет доступа / не подключено — показываем вместо списка
+  var отправляю = false, связь = true;
+
+  function вибро(вид) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(вид || 'light'); } catch (e) { /* нет */ } }
+  var таймерСтатуса;
+  function статус(текст, надолго) {
+    var с = $('статус');
+    с.textContent = текст; с.classList.toggle('видно', !!текст);
+    clearTimeout(таймерСтатуса);
+    if (текст && !надолго) таймерСтатуса = setTimeout(function () { с.classList.remove('видно'); }, 2600);
+  }
+
+  // Что видит человек: ответ скрипта + ещё не отправленные действия поверх.
+  function применить(сост, д) {
+    var п = сост.позиции;
+    if (д.тип === 'добавить') {
+      д.позиции.forEach(function (н) {
+        var к = ключТовара(н.товар);
+        var есть = п.find(function (x) { return !x.куплено && ключТовара(x.товар) === к; });
+        if (есть) { if (н.колво) есть.колво = н.колво; if (н.заметка) есть.заметка = н.заметка; }
+        else п.push({ id: н.id, товар: н.товар, группа: н.группа, колво: н.колво, заметка: н.заметка, куплено: false });
+      });
+    } else if (д.тип === 'отметить') {
+      п.forEach(function (x) { if (x.id === д.id) x.куплено = д.купить; });
+    } else if (д.тип === 'удалить') {
+      сост.позиции = п.filter(function (x) { return x.id !== д.id; });
+    } else if (д.тип === 'очистить') {
+      сост.позиции = п.filter(function (x) { return !x.куплено; });
+    } else if (д.тип === 'группа' || д.тип === 'изменить') {
+      п.forEach(function (x) {
+        if (x.id !== д.id) return;
+        if (д.группа) x.группа = д.группа;
+        if (д.колво !== undefined) x.колво = д.колво;
+        if (д.заметка !== undefined) x.заметка = д.заметка;
+      });
+    }
+    return сост;
+  }
+  function вид() {
+    var сост = JSON.parse(JSON.stringify(сервер || { позиции: [], подсказки: [], группы: ГРУППЫ }));
+    очередь.forEach(function (д) { сост = применить(сост, д); });
+    return сост;
+  }
+
+  function нарисовать() {
+    var с = вид();
+    var список = $('список');
+    var активные = с.позиции.filter(function (x) { return !x.куплено; });
+    var купленные = с.позиции.filter(function (x) { return x.куплено; });
+    $('осталось').textContent = активные.length ? 'осталось ' + активные.length : купленные.length ? 'всё куплено' : '';
+    var подск = (с.подсказки || []).filter(function (п) {
+      return !с.позиции.some(function (x) { return !x.куплено && ключТовара(x.товар) === ключТовара(п.товар); });
+    });
+    var бп = $('подсказки');
+    бп.hidden = !подск.length || !!ошибка;
+    бп.innerHTML = '<span class="ярлык">Часто берёте:</span>' + подск.map(function (п, i) {
+      return '<button class="чип" data-подсказка="' + i + '">＋ ' + э(п.товар) + ' <small>раз в ' + п.каждые + ' дн.</small></button>';
+    }).join('');
+    бп.подсказки = подск;
+    if (ошибка) {
+      список.innerHTML = '<div class="пусто"><b>Список не открылся</b>' + э(ошибка) + '</div>';
+      $('низ').hidden = true;
+      return;
+    }
+    if (!с.позиции.length) {
+      список.innerHTML = сервер ? '<div class="пусто"><b>Список пуст</b>Добавьте товары сверху или пришлите список боту — текстом, голосом или фото записки.</div>'
+        : '<div class="пусто">Загружаю список…</div>';
+      $('низ').hidden = true;
+      return;
+    }
+    var html = '';
+    (с.группы || ГРУППЫ).forEach(function (г) {
+      var свои = активные.filter(function (x) { return (КЛЮЧИ_ГРУПП.indexOf(x.группа) >= 0 ? x.группа : 'прочее') === г.ключ; });
+      if (!свои.length) return;
+      html += '<section><h2>' + г.значок + ' ' + э(г.имя) + '</h2>' + свои.map(строка).join('') + '</section>';
+    });
+    if (!активные.length) html += '<div class="пусто"><b>🎉 Всё куплено</b>Можно очистить список кнопкой внизу.</div>';
+    if (купленные.length) {
+      html += '<section><button class="куплено-шапка" id="куплено-шапка" type="button"><span>✅ Куплено · ' + купленные.length
+        + '</span><span>' + (свёрнуто ? 'показать ▾' : 'скрыть ▴') + '</span></button>'
+        + (свёрнуто ? '' : купленные.map(строка).join('')) + '</section>';
+    }
+    список.innerHTML = html;
+    $('низ').hidden = !купленные.length;
+  }
+  function строка(x) {
+    return '<div class="позиция' + (x.куплено ? ' куплено' : '') + '" data-id="' + э(x.id) + '" role="button">'
+      + '<span class="кружок"></span><div class="текст"><div class="имя">' + э(x.товар)
+      + (x.колво ? '<span class="колво">' + э(x.колво) + '</span>' : '') + '</div>'
+      + (x.заметка ? '<div class="заметка">' + э(x.заметка) + '</div>' : '') + '</div>'
+      + '<button class="ещё" data-ещё="' + э(x.id) + '" aria-label="Изменить">⋯</button></div>';
+  }
+
+  // ── связь со скриптом
+  // Обрыв связи — повторяем, пока не дойдёт; ответ не JSON (скрипт сломан или не так развёрнут) —
+  // это не «нет сети», после трёх попыток действие снимаем и говорим, что не так.
+  function запрос(тело) {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var таймер = setTimeout(function () { if (ctrl) ctrl.abort(); }, 25000);
+    тело.initData = initData;
+    тело.бот = window.ПОКУПКИ_БОТ || '';
+    // text/plain без своих заголовков: так браузер не шлёт предварительный OPTIONS, которого Google не понимает.
+    return fetch(API, { method: 'POST', body: JSON.stringify(тело), redirect: 'follow', signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) { return r.text(); })
+      .then(function (текст) {
+        clearTimeout(таймер);
+        try { return JSON.parse(текст); } catch (e) {
+          var о = new Error('скрипт ответил не JSON: ' + текст.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120));
+          о.неJSON = true;
+          throw о;
+        }
+      }, function (e) { clearTimeout(таймер); throw e; });
+  }
+  function принять(ответ) {
+    if (ответ && ответ.ок) {
+      ошибка = '';
+      сервер = { позиции: ответ.позиции || [], подсказки: ответ.подсказки || [], группы: ответ.группы || ГРУППЫ, я: ответ.я };
+      хранить.положить(КЭШ, сервер);
+      return true;
+    }
+    if (ответ && (ответ.нетДоступа || ответ.подпись === false)) { ошибка = ответ.ошибка; очередь = []; хранить.положить(ОЧЕРЕДЬ, очередь); }
+    return false;
+  }
+  function отправить() {
+    if (отправляю || !очередь.length || ошибка || !API) return;
+    отправляю = true;
+    var д = очередь[0];
+    var тело = Object.assign({}, д, { действие: д.тип });
+    delete тело.тип;
+    delete тело.попыток;
+    var дальше = function () { отправляю = false; нарисовать(); отправить(); };
+    запрос(тело).then(function (ответ) {
+      связь = true;
+      var ок = принять(ответ);
+      if (!ок && ответ && !ответ.нетДоступа && ответ.подпись !== false) статус('Не сохранилось: ' + (ответ.ошибка || 'ошибка'));
+      else if (!очередь.slice(1).length) статус('');
+      очередь.shift();
+      хранить.положить(ОЧЕРЕДЬ, очередь);
+      дальше();
+    }, function (е) {
+      if (е && е.неJSON) {
+        д.попыток = (д.попыток || 0) + 1;
+        if (д.попыток >= 3) { очередь.shift(); статус('Не сохранилось: ' + е.message); }
+        хранить.положить(ОЧЕРЕДЬ, очередь);
+        setTimeout(дальше, 2000);
+        return;
+      }
+      связь = false;
+      статус('Нет связи — отметки сохранятся, когда появится интернет', true);
+      setTimeout(дальше, 6000);
+    });
+  }
+  function действие(д) {
+    очередь.push(д);
+    хранить.положить(ОЧЕРЕДЬ, очередь);
+    нарисовать();
+    отправить();
+  }
+  function обновить() {
+    if (!API || отправляю || очередь.length || document.hidden) return;
+    запрос({ действие: 'список' }).then(function (ответ) {
+      связь = true;
+      if (!очередь.length && !отправляю) { принять(ответ); нарисовать(); }
+    }).catch(function () { связь = false; });
+  }
+
+  // ── нажатия
+  $('список').addEventListener('click', function (e) {
+    var ещё = e.target.closest('[data-ещё]');
+    if (ещё) { e.stopPropagation(); открыть(ещё.getAttribute('data-ещё')); return; }
+    if (e.target.closest('#куплено-шапка')) { свёрнуто = !свёрнуто; хранить.положить(СВЁРНУТО, свёрнуто); нарисовать(); return; }
+    var п = e.target.closest('.позиция');
+    if (!п) return;
+    var id = п.getAttribute('data-id');
+    var x = вид().позиции.find(function (y) { return y.id === id; });
+    if (!x) return;
+    вибро(x.куплено ? 'light' : 'medium');
+    действие({ тип: 'отметить', id: id, купить: !x.куплено });
+  });
+  $('форма').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var текст = $('поле').value.trim();
+    if (!текст) return;
+    var позиции = разобратьТекст(текст).map(function (п, i) {
+      return { id: новыйID(Date.now() + i), товар: п.товар, колво: п.колво, заметка: п.заметка, группа: группаПоСловарю(п.товар) };
+    });
+    if (!позиции.length) return;
+    $('поле').value = '';
+    вибро('light');
+    действие({ тип: 'добавить', позиции: позиции });
+  });
+  $('подсказки').addEventListener('click', function (e) {
+    var ч = e.target.closest('[data-подсказка]');
+    if (!ч) return;
+    var п = $('подсказки').подсказки[+ч.getAttribute('data-подсказка')];
+    вибро('light');
+    действие({ тип: 'добавить', позиции: [{ id: новыйID(), товар: п.товар, колво: п.колво || '', заметка: '', группа: п.группа }] });
+  });
+  $('очистить').addEventListener('click', function () { вибро('medium'); действие({ тип: 'очистить' }); });
+
+  // ── карточка товара: группа, количество, заметка, удалить
+  function открыть(id) {
+    var x = вид().позиции.find(function (y) { return y.id === id; });
+    if (!x) return;
+    var лист = $('лист');
+    лист.innerHTML = '<h3>' + э(x.товар) + '</h3>'
+      + '<label>Группа</label><div class="группы">' + ГРУППЫ.map(function (г) {
+        return '<button type="button" data-группа="' + г.ключ + '" class="' + (г.ключ === x.группа ? 'выбрана' : '') + '">' + г.значок + ' ' + э(г.имя) + '</button>';
+      }).join('') + '</div>'
+      + '<label for="и-колво">Сколько</label><input id="и-колво" value="' + э(x.колво) + '" placeholder="2 · 1 кг · 10 шт">'
+      + '<label for="и-заметка">Заметка</label><input id="и-заметка" value="' + э(x.заметка) + '" placeholder="например: тот, что в синей пачке">'
+      + '<div class="ряд-кнопок"><button class="кнопка опасно" type="button" id="и-удалить">Удалить</button>'
+      + '<button class="кнопка" type="button" id="и-сохранить">Сохранить</button></div>';
+    var группа = x.группа;
+    лист.querySelectorAll('[data-группа]').forEach(function (б) {
+      б.onclick = function () { группа = б.getAttribute('data-группа'); лист.querySelectorAll('[data-группа]').forEach(function (в) { в.classList.toggle('выбрана', в === б); }); };
+    });
+    $('и-сохранить').onclick = function () {
+      var колво = $('и-колво').value.trim(), заметка = $('и-заметка').value.trim();
+      if (группа !== x.группа) действие({ тип: 'группа', id: id, группа: группа });
+      if (колво !== (x.колво || '') || заметка !== (x.заметка || '')) действие({ тип: 'изменить', id: id, колво: колво, заметка: заметка });
+      закрыть();
+    };
+    $('и-удалить').onclick = function () { вибро('medium'); действие({ тип: 'удалить', id: id }); закрыть(); };
+    $('окно').classList.add('открыт');
+  }
+  function закрыть() { $('окно').classList.remove('открыт'); }
+  $('фон').addEventListener('click', закрыть);
+
+  // ── старт
+  if (!initData) ошибка = 'Откройте список кнопкой «🛒 Список» в боте покупок.';
+  else if (!API) ошибка = 'Список ещё не подключён к таблице — скоро заработает.';
+  нарисовать();
+  if (!ошибка) {
+    if (очередь.length) отправить(); else обновить();
+    setInterval(обновить, 10000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { отправить(); обновить(); } });
+    window.addEventListener('online', function () { отправляю = false; отправить(); обновить(); });
+  }
+})();
+</script>
+</body>
+</html>
