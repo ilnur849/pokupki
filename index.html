@@ -15,11 +15,11 @@
 <!-- Скрипт Telegram — своя копия рядом (telegram.org без VPN в России часто недоступен, и страница висела бы
      на нём белым экраном), грузится не блокируя. Подпись (initData) уже взята из адреса выше; скрипт ждём не
      дольше 2,5 с. Обновлять копию: curl -o страница/telegram-web-app.js https://telegram.org/js/telegram-web-app.js -->
-<script src="telegram-web-app.js" async
+<script src="telegram-web-app.js?v=ac5567bdab" async
   onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
   onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
-<script src="config.js"></script>
-<script src="logika.js"></script>
+<script src="config.js?v=ac5567bdab"></script>
+<script src="logika.js?v=ac5567bdab"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -414,6 +414,20 @@ function главное() {
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { отправить(); обновить(); } });
     window.addEventListener('online', function () { отправляю = false; отправить(); обновить(); });
   }
+  // Telegram держит старую копию страницы до 10 минут и дольше. version.json запрашиваем мимо кэша;
+  // версия не та — перезагружаемся, но один раз (sessionStorage), чтобы не зациклиться на упрямом кэше.
+  function проверитьВерсию() {
+    if (!window.ПОКУПКИ_ВЕРСИЯ || !window.fetch) return;
+    fetch('version.json?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (в) {
+      if (!в || !в.версия || в.версия === window.ПОКУПКИ_ВЕРСИЯ) return;
+      var ключ = 'покупки.перезагрузка', было = '';
+      try { было = sessionStorage.getItem(ключ) || ''; } catch (e) { /* без памяти */ }
+      if (было === в.версия) { статус('Есть новая версия списка — закройте его и откройте снова', true); return; }
+      try { sessionStorage.setItem(ключ, в.версия); } catch (e) { /* без памяти */ }
+      location.reload();
+    }).catch(function () { /* нет сети — не страшно */ });
+  }
+  setTimeout(проверитьВерсию, 1500);
   // Сторож: 12 с без ответа и без ошибки — говорим, чего не хватает, вместо вечного «Загружаю…».
   // Поздний ответ всё равно примется и сотрёт это сообщение.
   setTimeout(function () {
