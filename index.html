@@ -12,9 +12,10 @@
     try { return new URLSearchParams(location.hash.slice(1)).get('tgWebAppData') || ''; } catch (e) { return ''; }
   })();
 </script>
-<!-- Скрипт Telegram грузится не блокируя: без VPN telegram.org бывает недоступен, и страница висела бы
-     на нём белым экраном. Подпись (initData) уже взята из адреса выше; скрипт ждём не дольше 2,5 с. -->
-<script src="https://telegram.org/js/telegram-web-app.js" async
+<!-- Скрипт Telegram — своя копия рядом (telegram.org без VPN в России часто недоступен, и страница висела бы
+     на нём белым экраном), грузится не блокируя. Подпись (initData) уже взята из адреса выше; скрипт ждём не
+     дольше 2,5 с. Обновлять копию: curl -o страница/telegram-web-app.js https://telegram.org/js/telegram-web-app.js -->
+<script src="telegram-web-app.js" async
   onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
   onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
 <script src="config.js"></script>
@@ -124,10 +125,21 @@
 <script>
 function главное() {
   var tg = (window.Telegram && window.Telegram.WebApp) || null;
+  // Скрипта Telegram нет (не загрузился) — сами говорим клиенту «готово» и «развернуть», как это делает
+  // telegram-web-app.js: иначе Telegram не снимает свою заставку «загрузка», и страница «висит».
+  function событиеТГ(тип) {
+    var д = JSON.stringify({ eventType: тип, eventData: {} });
+    try { if (window.TelegramWebviewProxy) { window.TelegramWebviewProxy.postEvent(тип, '{}'); return; } } catch (e) { /* не Android/iOS */ }
+    try { if (window.external && 'notify' in window.external) { window.external.notify(д); return; } } catch (e) { /* не Windows */ }
+    try { if (window.parent && window.parent !== window) window.parent.postMessage(д, 'https://web.telegram.org'); } catch (e) { /* не веб */ }
+  }
   if (tg) {
     if (tg.initData) document.documentElement.classList.add('tg');
     // ready() — всегда, когда Telegram есть: иначе его заставка «загрузка» не снимается, и страница «висит».
     try { tg.ready(); tg.expand(); } catch (e) { /* старый клиент */ }
+  } else if (window.ИЗ_АДРЕСА) {
+    document.documentElement.classList.add('tg');
+    событиеТГ('web_app_ready'); событиеТГ('web_app_expand');
   }
   var initData = (tg && tg.initData) || window.ИЗ_АДРЕСА || '';
   var API = window.ПОКУПКИ_API || '';
