@@ -68,6 +68,9 @@
   .кружок { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--hint);
     display: grid; place-items: center; transition: background .15s, border-color .15s; }
   .позиция.дело .кружок { border-radius: 6px; }
+  .ссылка { display: inline-block; margin-top: 4px; padding: 3px 9px; border-radius: 999px; font: inherit; font-size: 13px;
+    background: var(--accent); color: var(--accent-text); border: 0; cursor: pointer; }
+  .позиция.куплено .ссылка { opacity: .5; }
   .позиция.куплено .кружок { background: var(--done); border-color: var(--done); }
   .позиция.куплено .кружок::after { content: ""; width: 6px; height: 11px; border: solid #fff; border-width: 0 2.5px 2.5px 0;
     transform: translateY(-1px) rotate(45deg); }
@@ -112,7 +115,7 @@
 <div class="шапка">
   <div class="строка"><h1>🛒 Покупки</h1><span class="осталось" id="осталось"></span></div>
   <form class="добавить" id="форма" autocomplete="off">
-    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб, забрать ВБ…" aria-label="Что добавить">
+    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб, забрать ВБ, ссылка на товар…" aria-label="Что добавить">
     <button type="submit" aria-label="Добавить">＋</button>
   </form>
 </div>
@@ -245,11 +248,19 @@ function главное() {
     $('низ').hidden = !купленные.length;
   }
   function строка(x) {
+    // Ссылка в заметке (товар с ВБ, Озона…) — кнопкой «🔗 ВБ», сама ссылка в тексте не показывается.
+    var урлы = ссылки(x.заметка), словами = безСсылок(x.заметка);
     return '<div class="позиция' + (x.куплено ? ' куплено' : '') + (x.группа === ГРУППА_ДЕЛ ? ' дело' : '') + '" data-id="' + э(x.id) + '" role="button">'
       + '<span class="кружок"></span><div class="текст"><div class="имя">' + э(x.товар)
       + (x.колво ? '<span class="колво">' + э(x.колво) + '</span>' : '') + '</div>'
-      + (x.заметка ? '<div class="заметка">' + э(x.заметка) + '</div>' : '') + '</div>'
-      + '<button class="ещё" data-ещё="' + э(x.id) + '" aria-label="Изменить">⋯</button></div>';
+      + (словами ? '<div class="заметка">' + э(словами) + '</div>' : '')
+      + урлы.map(function (у) { return '<button type="button" class="ссылка" data-ссылка="' + э(у) + '">🔗 ' + э(магазин(у)) + '</button>'; }).join(' ')
+      + '</div><button class="ещё" data-ещё="' + э(x.id) + '" aria-label="Изменить">⋯</button></div>';
+  }
+  function открытьСсылку(у) {
+    if (!/^https?:\/\//i.test(у)) return;
+    try { if (tg && tg.openLink) { tg.openLink(у); return; } } catch (e) { /* старый клиент */ }
+    window.open(у, '_blank', 'noopener');
   }
 
   // ── связь со скриптом
@@ -329,6 +340,8 @@ function главное() {
   $('список').addEventListener('click', function (e) {
     var ещё = e.target.closest('[data-ещё]');
     if (ещё) { e.stopPropagation(); открыть(ещё.getAttribute('data-ещё')); return; }
+    var сс = e.target.closest('[data-ссылка]');
+    if (сс) { e.stopPropagation(); вибро('light'); открытьСсылку(сс.getAttribute('data-ссылка')); return; }
     if (e.target.closest('#куплено-шапка')) { свёрнуто = !свёрнуто; хранить.положить(СВЁРНУТО, свёрнуто); нарисовать(); return; }
     var п = e.target.closest('.позиция');
     if (!п) return;
@@ -344,9 +357,9 @@ function главное() {
     if (!текст) return;
     var позиции = разобратьТекст(текст).map(function (п, i) {
       var группа = группаПоСловарю(п.товар);
-      var дело = группа === ГРУППА_ДЕЛ;
+      var дело = группа === ГРУППА_ДЕЛ && !ссылки(п.заметка).length;  // дело со ссылкой уже названо: «заказать ВБ: …»
       return { id: новыйID(Date.now() + i), товар: дело ? краткоДело(п.товар) : п.товар, колво: п.колво,
-        заметка: дело && краткоДело(п.товар) !== п.товар ? п.товар : п.заметка, группа: группа };
+        заметка: п.заметка || (дело && краткоДело(п.товар) !== п.товар ? п.товар : ''), группа: группа };
     });
     if (!позиции.length) return;
     $('поле').value = '';
@@ -372,7 +385,7 @@ function главное() {
         return '<button type="button" data-группа="' + г.ключ + '" class="' + (г.ключ === x.группа ? 'выбрана' : '') + '">' + г.значок + ' ' + э(г.имя) + '</button>';
       }).join('') + '</div>'
       + '<label for="и-колво">Сколько</label><input id="и-колво" value="' + э(x.колво) + '" placeholder="2 · 1 кг · 10 шт">'
-      + '<label for="и-заметка">Заметка</label><input id="и-заметка" value="' + э(x.заметка) + '" placeholder="например: тот, что в синей пачке">'
+      + '<label for="и-заметка">Заметка' + (ссылки(x.заметка).length ? ' (со ссылкой)' : '') + '</label><input id="и-заметка" value="' + э(x.заметка) + '" placeholder="например: тот, что в синей пачке — или ссылка на товар">'
       + '<div class="ряд-кнопок"><button class="кнопка опасно" type="button" id="и-удалить">Удалить</button>'
       + '<button class="кнопка" type="button" id="и-сохранить">Сохранить</button></div>';
     var группа = x.группа;
