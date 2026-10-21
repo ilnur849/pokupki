@@ -12,7 +12,11 @@
     try { return new URLSearchParams(location.hash.slice(1)).get('tgWebAppData') || ''; } catch (e) { return ''; }
   })();
 </script>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Скрипт Telegram грузится не блокируя: без VPN telegram.org бывает недоступен, и страница висела бы
+     на нём белым экраном. Подпись (initData) уже взята из адреса выше; скрипт ждём не дольше 2,5 с. -->
+<script src="https://telegram.org/js/telegram-web-app.js" async
+  onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
+  onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
 <script src="config.js"></script>
 <script src="logika.js"></script>
 <style>
@@ -118,10 +122,11 @@
 <div id="окно"><div class="лист-фон" id="фон"></div><div class="лист" id="лист"></div></div>
 
 <script>
-(function () {
+function главное() {
   var tg = (window.Telegram && window.Telegram.WebApp) || null;
-  if (tg && tg.initData) {
-    document.documentElement.classList.add('tg');
+  if (tg) {
+    if (tg.initData) document.documentElement.classList.add('tg');
+    // ready() — всегда, когда Telegram есть: иначе его заставка «загрузка» не снимается, и страница «висит».
     try { tg.ready(); tg.expand(); } catch (e) { /* старый клиент */ }
   }
   var initData = (tg && tg.initData) || window.ИЗ_АДРЕСА || '';
@@ -384,7 +389,21 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { отправить(); обновить(); } });
     window.addEventListener('online', function () { отправляю = false; отправить(); обновить(); });
   }
-})();
+  // Сторож: 12 с без ответа и без ошибки — говорим, чего не хватает, вместо вечного «Загружаю…».
+  // Поздний ответ всё равно примется и сотрёт это сообщение.
+  setTimeout(function () {
+    if (сервер || ошибка) return;
+    ошибка = 'Не дождался ответа за 12 с. Скрипт Telegram: ' + (window.ТГ_ЗАГРУЖЕН ? 'есть' : window.ТГ_ОШИБКА ? 'не загрузился' : 'не дождался')
+      + ' · подпись: ' + (initData ? 'есть' : 'нет') + ' · адрес таблицы: ' + (API ? 'есть' : 'нет')
+      + (tg ? ' · ' + (tg.platform || '') + ' ' + (tg.version || '') : '') + '. Закройте и откройте список снова.';
+    нарисовать();
+  }, 12000);
+}
+// Запуск: как только загрузился скрипт Telegram (или не загрузился), но не позже чем через 2,5 с.
+var ЗАПУЩЕНО = false;
+window.ЗАПУСК = function () { if (ЗАПУЩЕНО) return; ЗАПУЩЕНО = true; clearTimeout(window.ЖДЁМ_ТГ); главное(); };
+window.ЖДЁМ_ТГ = setTimeout(window.ЗАПУСК, 2500);
+if (window.ТГ_ЗАГРУЖЕН || window.ТГ_ОШИБКА || (window.Telegram && window.Telegram.WebApp)) window.ЗАПУСК();
 </script>
 </body>
 </html>
