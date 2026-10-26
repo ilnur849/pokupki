@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Такси</title>
+<!--
+  🚕 Переходник для кнопок «Максим» и inDrive под ответом бота про такси (26.10).
+  Их приложения маршрут по ссылке не принимают, поэтому страница открывает «Помощник» (pokupki://taxi, с версии 2.15):
+  он кладёт адрес в буфер обмена и запускает приложение такси — остаётся «Куда» → «Вставить».
+  Адрес приходит после «#»: на сервер GitHub он не уходит. «Помощника» 2.15 нет — Google Play этого такси, как раньше.
+-->
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --accent: #f5c400; --accent-text: #1d1d1b; --line: #e3e3de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --card: #222220; --text: #f1f1ec; --muted: #a3a39c; --accent: #f5c400; --accent-text: #1d1d1b; --line: #34342f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .label { color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+  .addr { font-size: 19px; font-weight: 600; word-break: break-word; }
+  button, a.btn { display: block; width: 100%; padding: 14px; margin-top: 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; }
+  button.main { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .note { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">🚕 Открываю…</h1>
+  <div class="card">
+    <div class="label">Адрес — в приложении нажмите «Куда» и вставьте</div>
+    <div class="addr" id="addr">—</div>
+    <button class="main" id="open" type="button">Открыть</button>
+    <button id="copy" type="button">📋 Скопировать адрес</button>
+  </div>
+  <p class="note" id="note">Адрес копирует и приложение открывает «Помощник» (версия 2.15 и новее). Без него откроется Google Play.</p>
+  <a class="btn" id="play" href="#">Google Play</a>
+</main>
+<script>
+(function () {
+  var ПРИЛ = { maxim: ['com.taxsee.taxsee', '«Максим»'], indrive: ['sinet.startup.inDriver', 'inDrive'] };
+  var п = new URLSearchParams(location.hash.slice(1));
+  var код = ПРИЛ[п.get('app')] ? п.get('app') : 'maxim';
+  var прил = ПРИЛ[код];
+  var адрес = (п.get('to') || '').trim().slice(0, 200);
+  var play = 'https://play.google.com/store/apps/details?id=' + прил[0];
+  var intent = 'intent://taxi?app=' + код + '&to=' + encodeURIComponent(адрес)
+    + '#Intent;scheme=pokupki;package=ru.ilnur849.pokupki;S.browser_fallback_url=' + encodeURIComponent(play) + ';end';
+  var андроид = /android/i.test(navigator.userAgent);
+
+  document.getElementById('title').textContent = '🚕 ' + прил[1];
+  document.getElementById('addr').textContent = адрес || 'адрес не передан';
+  document.getElementById('open').textContent = 'Открыть ' + прил[1];
+  var кнопкаPlay = document.getElementById('play');
+  кнопкаPlay.href = play;
+  кнопкаPlay.textContent = прил[1] + ' в Google Play';
+
+  function открыть() { location.href = андроид ? intent : play; }
+
+  function скопировать() {
+    var кн = document.getElementById('copy');
+    var готово = function () { кн.textContent = '✅ Скопировано'; };
+    var запасной = function () {
+      var t = document.createElement('textarea');
+      t.value = адрес; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); готово(); } catch (e) { кн.textContent = 'Не скопировалось — выделите адрес пальцем'; }
+      document.body.removeChild(t);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(адрес).then(готово, запасной);
+    else запасной();
+  }
+
+  document.getElementById('open').addEventListener('click', function () { скопировать(); открыть(); });
+  document.getElementById('copy').addEventListener('click', скопировать);
+  if (!адрес) document.getElementById('copy').hidden = true;
+
+  // Сразу в «Помощник» — один раз; вернулись на страницу — кнопки на месте.
+  if (андроид && адрес) {
+    try { location.replace(intent); } catch (e) { /* кнопка «Открыть» остаётся */ }
+  } else if (!андроид) {
+    document.getElementById('note').textContent = 'Это кнопка для телефона на Android. Здесь — адрес и ссылка на приложение.';
+  }
+})();
+</script>
+</body>
+</html>
