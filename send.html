@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Отправить файл</title>
+<!--
+  📤 Переходник для кнопок «💬 WhatsApp / ✈️ Telegram» под файлом от бота (26.10, «отправь Гузель в ватсап паспорт Айнура»).
+  Открывает «Помощник» (pokupki://send, с версии 2.16): он скачивает файл по id Telegram и отдаёт его WhatsApp сразу в чат
+  человека или Telegram с выбором чата. Всё приходит после «#» — на сервер GitHub не уходит. Старый «Помощник» — сюда же с ?old=1.
+-->
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --accent: #25d366; --accent-text: #0b2e17; --line: #e3e3de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --card: #222220; --text: #f1f1ec; --muted: #a3a39c; --accent: #25d366; --accent-text: #0b2e17; --line: #34342f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .label { color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+  .name { font-size: 19px; font-weight: 600; word-break: break-word; }
+  button, a.btn { display: block; width: 100%; padding: 14px; margin-top: 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; }
+  button.main { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .note { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">📤 Открываю…</h1>
+  <div class="card" id="card">
+    <div class="label">Файл</div>
+    <div class="name" id="name">—</div>
+    <button class="main" id="open" type="button">Отправить</button>
+  </div>
+  <p class="note" id="note">Файл скачает и отдаст в мессенджер «Помощник» (версия 2.16 и новее).</p>
+  <a class="btn" id="apk" href="https://ilnur849.github.io/pokupki/pokupki.apk">Скачать новый «Помощник»</a>
+</main>
+<script>
+(function () {
+  var п = new URLSearchParams(location.hash.slice(1));
+  var старый = /[?&]old=1/.test(location.search);
+  var wa = п.get('app') !== 'tg';
+  var имя = (п.get('n') || 'файл').slice(0, 120);
+  var куда = wa ? 'WhatsApp' : 'Telegram';
+  var назад = location.origin + location.pathname + '?old=1';
+  var intent = 'intent://send?' + п.toString() + '#Intent;scheme=pokupki;package=ru.ilnur849.pokupki;S.browser_fallback_url='
+    + encodeURIComponent(назад) + ';end';
+  var андроид = /android/i.test(navigator.userAgent);
+
+  document.getElementById('title').textContent = (wa ? '💬 ' : '✈️ ') + 'Отправить в ' + куда;
+  document.getElementById('name').textContent = имя;
+  document.getElementById('open').textContent = 'Отправить в ' + куда;
+  document.getElementById('open').addEventListener('click', function () { location.href = intent; });
+
+  if (старый) {
+    document.getElementById('title').textContent = '📤 Нужен новый «Помощник»';
+    document.getElementById('card').hidden = true;
+    document.getElementById('note').textContent = 'Файл в WhatsApp и Telegram отдаёт «Помощник» 2.16 — обновите его по кнопке ниже. '
+      + 'А пока: в Telegram нажмите на файл → «⋮» → «Поделиться» → WhatsApp.';
+    return;
+  }
+  if (!п.get('f')) {
+    document.getElementById('note').textContent = 'В ссылке нет файла.';
+    document.getElementById('open').hidden = true;
+    return;
+  }
+  if (андроид) {
+    try { location.replace(intent); } catch (e) { /* кнопка «Отправить» остаётся */ }
+  } else {
+    document.getElementById('note').textContent = 'Это кнопка для телефона на Android с «Помощником».';
+    document.getElementById('open').hidden = true;
+  }
+})();
+</script>
+</body>
+</html>
