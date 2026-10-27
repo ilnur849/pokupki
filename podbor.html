@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Подбор товаров</title>
+<!--
+  🛍 Переходник для кнопки «🛍 Открыть подбор» от бота (27.10): открывает «Подбор» в «Помощнике» (pokupki://podbor?q=…, с
+  версии 2.19) — поиск товара в восьми магазинах сразу. Старый «Помощник» — сюда же с ?old=1.
+-->
+<style>
+  :root { --bg: #f6f6f4; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --accent: #16a34a; --accent-text: #fff; --line: #e3e3de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --card: #222220; --text: #f1f1ec; --muted: #a3a39c; --accent: #16a34a; --accent-text: #fff; --line: #34342f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  button, a.btn { display: block; width: 100%; padding: 14px; margin-top: 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; }
+  button.main { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .note { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">🛍 Открываю подбор…</h1>
+  <div class="card" id="card">
+    <div id="what">«Помощник» поищет товар в Озоне, WB, Яндекс Маркете, ВсеИнструментах, Лемана ПРО, Максидоме, Мегастрое и Колорите
+      и покажет всё вместе: цены, цена за литр или килограмм, рейтинг. Понравившееся — в свою корзину.</div>
+    <button class="main" id="open" type="button">Открыть в «Помощнике»</button>
+  </div>
+  <p class="note" id="note">Нужен «Помощник» 2.19 и новее.</p>
+  <a class="btn" id="apk" href="https://ilnur849.github.io/pokupki/pokupki.apk">Скачать новый «Помощник»</a>
+</main>
+<script>
+(function () {
+  var старый = /[?&]old=1/.test(location.search);
+  var назад = location.origin + location.pathname + '?old=1';
+  var q = new URLSearchParams(location.search).get('q') || '';
+  if (q) document.getElementById('title').textContent = '🛍 Подбор: «' + q.slice(0, 80) + '»';
+  var intent = 'intent://podbor' + (q ? '?q=' + encodeURIComponent(q) : '') + '#Intent;scheme=pokupki;package=ru.ilnur849.pokupki;S.browser_fallback_url='
+    + encodeURIComponent(назад) + ';end';
+  document.getElementById('open').addEventListener('click', function () { location.href = intent; });
+  if (старый) {
+    document.getElementById('title').textContent = '🛍 Нужен новый «Помощник»';
+    document.getElementById('card').hidden = true;
+    document.getElementById('note').textContent = 'Подбор по магазинам делает «Помощник» 2.19 — обновите его по кнопке ниже.';
+    return;
+  }
+  if (/android/i.test(navigator.userAgent)) {
+    try { location.replace(intent); } catch (e) { /* кнопка остаётся */ }
+  } else {
+    document.getElementById('note').textContent = 'Это кнопка для телефона на Android с «Помощником»: магазины открывает телефон.';
+    document.getElementById('open').hidden = true;
+  }
+})();
+</script>
+</body>
+</html>
