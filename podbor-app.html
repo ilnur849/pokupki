@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Подбор</title>
+<!--
+  🛍 Подбор (27.10, Ильнур: «поиск товаров на Озон, WB, Маркет… краска… максимального удобства, наглядности, корзина и
+  её редактирование»; «корзина моя»). Страница внутри «Помощника» (PodborActivity). С 2.20 поиском правит она сама, а
+  «Помощник» только открывает страницы магазинов в невидимом окне: страница и скрипт магазинов (podbor_page.js) берутся
+  с GitHub Pages (podbor-app.html), этот файл — запасной, если Pages не открылся. Так подбор чинится без новой версии
+  приложения (Ильнур 27.10: «скудный подбор… поизучай»).
+  Ход поиска: понять (n8n: из речи — короткий запрос и условия) → магазины по очереди (Pomo.load / Pomo.run →
+  window.__podbor.state()) → карточки сразу разбирать в n8n, рабочее окно идёт к следующему магазину → журнал в n8n
+  (`build_podbor.py --журнал`), непонятная страница — снимок туда же.
+  Связь со «Помощником» — window.Pomo: call (n8n), load / run / since (рабочее окно), show (окно наверх — проверка
+  «не робот»), open, stop, app; ответы — onPomo, onWorker, podborRetry.
+  Проверка — pokupki/widget/test_podbor_ui.js (Playwright, Pomo подменён).
+-->
+<style>
+  :root { --bg: #0f172a; --card: #1e293b; --line: #334155; --text: #f1f5f9; --muted: #94a3b8; --accent: #22c55e; --accent2: #38bdf8;
+    --warn: #f59e0b; --bad: #f87171; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.35 system-ui, -apple-system, Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 12px 6px; border-bottom: 1px solid var(--line); }
+  .tabs { display: flex; gap: 8px; }
+  .tab { flex: 1; padding: 9px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--muted);
+    font: inherit; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab.on { color: var(--text); border-color: var(--accent2); }
+  .bar { display: flex; gap: 8px; margin-top: 8px; }
+  input[type=search] { flex: 1; min-width: 0; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line); background: #0b1220;
+    color: var(--text); font: inherit; }
+  button { font: inherit; cursor: pointer; }
+  .go { padding: 0 16px; border-radius: 12px; border: 0; background: var(--accent); color: #052e16; font-weight: 700; }
+  .go.stop { background: var(--warn); color: #3a2300; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 2px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: 0 0 auto; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    font-size: 13px; white-space: nowrap; }
+  .chip small { color: var(--muted); margin-left: 4px; }
+  .chip.wait { color: var(--muted); }
+  .chip.check { border: 1px dashed var(--warn); color: var(--warn); }
+  .chip.check small { color: var(--warn); }
+  .chip.sel { background: var(--accent2); border-color: var(--accent2); color: #082f49; font-weight: 600; }
+  .chip.sel small { color: #082f49; }
+  main { padding: 8px 12px 90px; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 2px; }
+  .understood { font-size: 13px; color: var(--muted); margin: 6px 2px 0; }
+  .understood b { color: var(--text); }
+  .link { border: 0; background: none; padding: 0; color: var(--accent2); font-size: 13px; text-decoration: underline; }
+  .divider { margin: 16px 2px 8px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
+  .item { display: flex; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px; margin-bottom: 8px; }
+  .item.dim { opacity: .6; }
+  .item img, .ph { width: 76px; height: 76px; flex: 0 0 76px; border-radius: 10px; object-fit: contain; background: #fff; }
+  .ph { display: flex; align-items: center; justify-content: center; font-size: 28px; background: #0b1220; }
+  .info { flex: 1; min-width: 0; }
+  .name { font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .price { margin-top: 4px; font-size: 17px; font-weight: 700; }
+  .price s { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: 6px; }
+  .per { color: var(--accent2); font-size: 13px; font-weight: 600; margin-left: 6px; }
+  .side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 6px; }
+  .add { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .step { display: flex; align-items: center; gap: 2px; border: 1px solid var(--accent); border-radius: 10px; }
+  .step button { width: 34px; height: 34px; border: 0; background: transparent; color: var(--text); font-size: 18px; }
+  .step span { min-width: 22px; text-align: center; font-weight: 700; color: var(--accent); }
+  .shop { display: flex; align-items: baseline; justify-content: space-between; margin: 14px 2px 6px; font-weight: 700; }
+  .shop small { color: var(--muted); font-weight: 400; }
+  .row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+  .sum { color: var(--muted); font-size: 13px; font-weight: 600; margin-left: 6px; }
+  #cartN { font-weight: 400; font-size: 13px; color: var(--muted); }
+  .mini { padding: 5px 9px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 13px; }
+  .mini.on { color: var(--accent); border-color: var(--accent); }
+  .bought .name { text-decoration: line-through; color: var(--muted); }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; background: #0b1220; border-top: 1px solid var(--line); padding: 10px 14px;
+    display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+  footer small { color: var(--muted); font-weight: 400; }
+  .empty { text-align: center; color: var(--muted); margin: 40px 10px; }
+  .hide { display: none !important; }
+  .toast { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); background: #111827; border: 1px solid var(--line);
+    padding: 8px 14px; border-radius: 999px; font-size: 13px; z-index: 9; }
+</style>
+</head>
+<body>
+<header>
+  <div class="tabs">
+    <button class="tab on" id="tFind" type="button">🔎 Поиск</button>
+    <button class="tab" id="tCart" type="button">🧺 Корзина <span id="cartN"></span></button>
+  </div>
+  <div id="findBar">
+    <div class="bar">
+      <input type="search" id="q" placeholder="Что ищем? Например: краска для стен белая 10 л" enterkeyhint="search" autocomplete="off">
+      <button class="go" id="go" type="button">Найти</button>
+    </div>
+    <div class="chips" id="shops"></div>
+    <div class="chips" id="sorts"></div>
+  </div>
+</header>
+<main>
+  <section id="find">
+    <div class="chips" id="recent"></div>
+    <div id="state"></div>
+    <div id="results"></div>
+  </section>
+  <section id="cart" class="hide"></section>
+</main>
+<footer id="foot" class="hide"></footer>
+<script>
+(function () {
+  'use strict';
+  var СТРАНИЦА = 'с2';   // версия этой страницы — в журнал поисков вместе с версией «Помощника»
+  var Pomo = window.Pomo || null;
+  var приложение = {};
+  try { приложение = Pomo && Pomo.app ? JSON.parse(Pomo.app()) : {}; } catch (e) { приложение = {}; }
+  var магазины = [], поМагазину = {}, статус = {}, товары = {}, адреса = {}, отчёт = {};
+  var корзина = { товары: [], магазины: [], итого: 0, осталось: 0 };
+  var сортировка = 'цена', вкладка = 'поиск', запрос = '', понято = null, идёт = false, фильтрМагазин = '';
+  var ждут = {}, рабочие = {}, номер = 0;
+  // Поиск: поколение растёт с каждым новым поиском и «Стопом» — всё, что запустил прошлый, молча бросает работу.
+  var поколение = 0, очередь = [], ходит = null, разбирается = 0, наПроверке = '', показов = 0;
+  var ПОДСКАЗКА = 'Напишите или скажите своими словами, что нужно: «краска для стен белая 10 л», «штаны ребёнку рост 122, '
+    + 'хорошие отзывы». Пойму, что искать, посмотрю во всех магазинах и покажу всё найденное — сначала подходящее.';
+  function $(id) { return document.getElementById(id); }
+  function э(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function руб(n) { var x = Math.round(Number(n) * 100) / 100; return x.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽'; }
+  function хранить(к, v) { try { localStorage.setItem(к, JSON.stringify(v)); } catch (e) { /* нет хранилища — без памяти */ } }
+  function взять(к, d) { try { var v = localStorage.getItem(к); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+  function пауза(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  function тост(t) {
+    var d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d);
+    setTimeout(function () { d.remove(); }, 2200);
+  }
+
+  // ── связь с «Помощником»
+  // n8n: Pomo.call(id, json) → window.onPomo(id, ответ).
+  function позвать(тело) {
+    return new Promise(function (ok) {
+      if (!Pomo) return ok({ ок: false, ошибка: 'нет связи с «Помощником»' });
+      var id = 'c' + (++номер);
+      ждут[id] = ok;
+      Pomo.call(id, JSON.stringify(тело));
+    });
+  }
+  window.onPomo = function (id, ответ) {
+    var ok = ждут[id]; delete ждут[id];
+    var r; try { r = typeof ответ === 'string' ? JSON.parse(ответ) : ответ; } catch (e) { r = { ок: false, ошибка: 'ответ не разобрался' }; }
+    if (ok) ok(r || { ок: false });
+  };
+  // Рабочее окно (страница магазина): Pomo.load(id, адрес) / Pomo.run(id, код) → window.onWorker(id, {ок, адрес} | {r}).
+  // Пока человек проходит проверку магазина, окно его — поиск ждёт.
+  function рабочая(метод, арг) {
+    return new Promise(function (ok) {
+      if (!Pomo || !Pomo[метод]) return ok(null);
+      var id = 'w' + (++номер);
+      рабочие[id] = ok;
+      if (метод === 'load') Pomo.load(id, арг); else Pomo.run(id, арг);
+    });
+  }
+  window.onWorker = function (id, ответ) {
+    var ok = рабочие[id]; delete рабочие[id];
+    var r; try { r = typeof ответ === 'string' ? JSON.parse(ответ) : ответ; } catch (e) { r = null; }
+    if (ok) ok(r);
+  };
+  async function ждатьПроверку() { while (наПроверке) await пауза(300); }
+  async function грузить(url) { await ждатьПроверку(); return рабочая('load', url); }
+  async function выполнить(код) {
+    await ждатьПроверку();
+    var r = await рабочая('run', 'window.__podbor && ' + код);
+    return r && r.r !== undefined ? r.r : null;
+  }
+  async function состояние() {
+    var s = await выполнить('window.__podbor.state()');
+    try { return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+  function отметка() { return Pomo && Pomo.since ? String(Pomo.since()) : ''; }
+
+  // ── поиск в одном магазине: открыть, дождаться карточек, прокрутить, вернуть что увидели
+  async function ждатьКарточки(моё) {
+    var st = null, t0 = Date.now(), прокрутил = false;
+    while (Date.now() - t0 < 18000 && моё === поколение) {
+      st = await состояние();
+      if (st && ((st.карточки || []).length || st.проверка || st.пусто)) { await пауза(700); return (await состояние()) || st; }
+      if (!прокрутил && Date.now() - t0 > 3000) { await выполнить('window.__podbor.scroll()'); прокрутил = true; }
+      await пауза(700);
+    }
+    return st;
+  }
+  async function страница(м, поиск, моё) {
+    var д = { t0: Date.now(), вид: '', текст: '', st: null };
+    var шаблоны = взять('шаблоны', {}), шаблон = шаблоны[м.код] || м.поиск;
+    if (шаблон && шаблон.indexOf('{q}') >= 0) {
+      адреса[м.код] = шаблон.replace('{q}', encodeURIComponent(поиск));
+      await грузить(адреса[м.код]);
+    } else {
+      // Адрес поиска не известен — строкой поиска на главной, потом запомнить, каким он вышел.
+      адреса[м.код] = м.дом;
+      await грузить(м.дом);
+      await пауза(1200);
+      var до = отметка();
+      var как = await выполнить('window.__podbor.search(' + JSON.stringify(поиск) + ')');
+      if (!как || как === 'нет поля') {
+        д.st = await состояние();
+        д.вид = д.st && д.st.проверка ? 'проверка' : 'непонятно'; д.текст = 'не нашёл строку поиска';
+      } else {
+        for (var t = Date.now(); отметка() === до && Date.now() - t < 12000 && моё === поколение;) await пауза(250);
+        await пауза(1500);
+        var выучил = await выполнить('window.__podbor.template(' + JSON.stringify(поиск) + ')');
+        if (выучил && выучил.indexOf('{q}') >= 0) { шаблоны[м.код] = выучил; хранить('шаблоны', шаблоны); }
+      }
+    }
+    if (!д.вид) {
+      await пауза(1200);
+      д.st = await ждатьКарточки(моё);
+      var c = (д.st && д.st.карточки) || [];
+      if (c.length) {
+        // Карточки дорисовываются по прокрутке — ещё два экрана вниз.
+        for (var k = 0; k < 2 && моё === поколение; k++) { await выполнить('window.__podbor.scroll()'); await пауза(1100); }
+        var ещё = await состояние();
+        if (ещё && (ещё.карточки || []).length > c.length) д.st = ещё;
+        д.вид = 'карточки';
+      } else д.вид = !д.st ? 'ошибка' : д.st.проверка ? 'проверка' : д.st.пусто ? 'пусто' : 'непонятно';
+      if (!д.st) д.текст = 'страница не ответила';
+    }
+    if (д.st && д.st.адрес) адреса[м.код] = д.st.адрес;
+    // Непонятная страница или подозрительно мало карточек — снимок сессии разработки (--журнал).
+    var сколько = ((д.st && д.st.карточки) || []).length;
+    if (моё === поколение && (д.вид === 'непонятно' || д.вид === 'проверка' || (д.вид === 'карточки' && сколько <= 2))) {
+      try { д.снимок = JSON.parse((await выполнить('window.__podbor.diag && window.__podbor.diag()')) || 'null'); } catch (e) { д.снимок = null; }
+    }
+    return д;
+  }
+  // Карточки — в n8n на разбор; рабочее окно тем временем уже у следующего магазина.
+  async function разобрать(м, д, моё) {
+    var c = (д.st && д.st.карточки) || [];
+    var о = отчёт[м.код] = { код: м.код, статус: д.вид, карточек: c.length, товаров: 0, подходит: 0,
+      секунд: Math.round((Date.now() - д.t0) / 1000), текст: д.текст || '', путь: (д.st && д.st.путь) || '' };
+    if (д.снимок) позвать(Object.assign({ что: 'диагностика', код: м.код, почему: д.вид + (c.length ? ' · карточек ' + c.length : '') }, д.снимок));
+    if (!c.length) { статус[м.код] = { что: д.вид, текст: д.текст }; рисовать(); return; }
+    статус[м.код] = { что: 'разбираю', n: c.length };
+    рисовать();
+    разбирается++;
+    try {
+      var r = await позвать({ что: 'разобрать', магазин: м.код, запрос: запрос, поиск: понято.поиск, условия: понято.условия, карточки: c });
+      if (моё !== поколение) return;
+      if (r && r.ок) {
+        товары[м.код] = r.товары || [];
+        о.товаров = товары[м.код].length; о.подходит = товары[м.код].filter(function (т) { return т.подходит; }).length;
+        статус[м.код] = { что: 'готово' }; о.статус = о.товаров ? 'готово' : 'не товары';
+      } else {
+        статус[м.код] = { что: 'ошибка', текст: (r && r.ошибка) || 'n8n не разобрал' };
+        о.статус = 'ошибка'; о.текст = статус[м.код].текст;
+      }
+      рисовать();
+    } finally {
+      if (моё === поколение) { разбирается--; конец(моё); }
+    }
+  }
+  function запустить() {
+    if (ходит) return;
+    var моё = поколение;
+    идёт = true;
+    ходит = (async function () {
+      while (очередь.length && моё === поколение) {
+        await ждатьПроверку();
+        var м = очередь.shift(), был = показов;
+        статус[м.код] = { что: 'ищу' }; рисовать();
+        var д = await страница(м, понято.поиск, моё);
+        if (моё !== поколение) break;
+        if (показов !== был) { очередь.unshift(м); continue; }   // посреди магазина открыли проверку — окно увели, заново
+        разобрать(м, д, моё);
+      }
+    })().then(function () { ходит = null; конец(моё); });
+  }
+  function конец(моё) {
+    if (моё !== поколение || ходит || разбирается) return;
+    if (очередь.length) { запустить(); return; }   // пока разбирали, «✓ Готово» на проверке добавил магазин
+    идёт = false;
+    сохранитьПоиск(); рисовать();
+    var м = Object.keys(отчёт).map(function (к) { return отчёт[к]; });
+    if (м.length) позвать({ что: 'журнал', версия: СТРАНИЦА + '·' + (приложение.версия || '?') + (приложение.страница === 'apk' ? '·apk' : ''),
+      запрос: запрос, поиск: понято.поиск, условия: понято.условия, магазины: м });
+  }
+  async function искать(q, какНаписал) {
+    q = String(q || '').trim();
+    if (!q) { $('q').focus(); return; }
+    var моё = ++поколение;
+    if (Pomo && Pomo.stop) Pomo.stop();
+    очередь = [];
+    if (ходит) await ходит;
+    if (моё !== поколение) return;
+    запрос = q; понято = null; товары = {}; статус = {}; отчёт = {}; адреса = {}; фильтрМагазин = ''; разбирается = 0; идёт = true;
+    хранить('недавние', [q].concat(взять('недавние', []).filter(function (x) { return x !== q; })).slice(0, 8));
+    $('q').value = q; $('q').blur();
+    магазины.forEach(function (м) { статус[м.код] = { что: 'жду' }; });
+    рисовать();
+    if (!какНаписал) {
+      var r = await позвать({ что: 'понять', запрос: q });
+      if (моё !== поколение) return;
+      if (r && r.ок && r.поиск) понято = { поиск: r.поиск, условия: r.условия || '', сортировка: r.сортировка || '' };
+    }
+    понято = понято || { поиск: q, условия: '', сортировка: '' };
+    if (понято.сортировка) сортировка = понято.сортировка;
+    очередь = магазины.slice();
+    запустить();
+    рисовать();
+  }
+  function стоп() {
+    поколение++;
+    очередь = []; разбирается = 0; идёт = false;
+    if (Pomo && Pomo.stop) Pomo.stop();
+    Object.keys(статус).forEach(function (к) { if (['жду', 'ищу', 'разбираю'].indexOf(статус[к].что) >= 0) статус[к] = { что: 'стоп' }; });
+    понято = понято || { поиск: запрос, условия: '', сортировка: '' };
+    сохранитьПоиск(); рисовать();
+  }
+  // Магазин без найденного (проверка, «не разобрал», пусто) — его страницу наверх: пройти проверку, выбрать город.
+  function показать(код) {
+    var м = поМагазину[код];
+    if (!м || !Pomo || !Pomo.show) return;
+    наПроверке = код; показов++;
+    var шаблон = взять('шаблоны', {})[код] || м.поиск, поиск = (понято && понято.поиск) || запрос;
+    var адрес = адреса[код] || (шаблон && шаблон.indexOf('{q}') >= 0 && поиск ? шаблон.replace('{q}', encodeURIComponent(поиск)) : м.дом);
+    Pomo.show(код, адрес, (статус[код] && статус[код].что === 'проверка' ? 'Пройдите проверку «' + м.имя + '»' : 'Это страница «' + м.имя + '»')
+      + ' (или выберите город, закройте окно), потом «✓ Готово» — поищу там снова.');
+  }
+  // «Помощник» убрал окно магазина: «✓ Готово» — искать в магазине снова, «Назад» — просто вернуться.
+  window.podborRetry = function (код, снова) {
+    наПроверке = '';
+    if (снова === false || !поМагазину[код] || !запрос) return;
+    понято = понято || { поиск: запрос, условия: '', сортировка: '' };
+    очередь = [поМагазину[код]].concat(очередь.filter(function (м) { return м.код !== код; }));
+    delete товары[код]; статус[код] = { что: 'жду' };
+    запустить();
+    рисовать();
+  };
+  function сохранитьПоиск() { хранить('поиск', { запрос: запрос, понято: понято, товары: товары, статус: статус, адреса: адреса, когда: Date.now() }); }
+
+  // ── магазины, понятый запрос, ход поиска
+  var ЗНАЧКИ = { 'жду': '·', 'ищу': '⏳', 'разбираю': '🧠', 'проверка': '🤖', 'пусто': '—', 'ошибка': '⚠️', 'непонятно': '❔', 'стоп': '■' };
+  function подходящих(код) { return (товары[код] || []).filter(function (т) { return т.подходит; }).length; }
+  function рисоватьМагазины() {
+    var всего = всеТовары().length;
+    var h = '<button type="button" class="chip' + (!фильтрМагазин ? ' sel' : '') + '" data-shop="">Все' + (всего ? '<small>' + всего + '</small>' : '') + '</button>';
+    магазины.forEach(function (м) {
+      var с = статус[м.код], n = подходящих(м.код), ещё = (товары[м.код] || []).length - n;
+      var знак = !с ? '' : с.что === 'готово' ? '✓ ' + n + (ещё ? ' +' + ещё : '') : (ЗНАЧКИ[с.что] || '');
+      var cls = 'chip' + (фильтрМагазин === м.код ? ' sel' : с && с.что === 'проверка' ? ' check' : с && ['жду', 'стоп'].indexOf(с.что) >= 0 ? ' wait' : '');
+      h += '<button type="button" class="' + cls + '" data-shop="' + м.код + '">' + м.значок + ' ' + э(м.имя) + (знак ? '<small>' + знак + '</small>' : '') + '</button>';
+    });
+    $('shops').innerHTML = магазины.length ? h : '';
+  }
+  function магазинах(n) { return n + (n % 10 === 1 && n % 100 !== 11 ? ' магазине' : ' магазинах'); }
+  function рисоватьСостояние() {
+    var h = '';
+    if (запрос && понято) {
+      h += '<div class="understood">Ищу: «<b>' + э(понято.поиск) + '</b>»' + (понято.условия ? ' · проверяю: ' + э(понято.условия) : '')
+        + (понято.поиск !== запрос ? ' · <button type="button" class="link" data-raw="1">искать как написал</button>' : '') + '</div>';
+    }
+    if (!запрос) h += '<div class="note">' + ПОДСКАЗКА + '</div>';
+    else if (идёт && !понято) h += '<div class="note">🧠 Понимаю, что искать…</div>';
+    else if (идёт) {
+      var сейчас = магазины.filter(function (м) { return статус[м.код] && статус[м.код].что === 'ищу'; })[0];
+      var прошли = магазины.filter(function (м) { return статус[м.код] && ['жду', 'ищу'].indexOf(статус[м.код].что) < 0; }).length;
+      h += '<div class="note">' + (наПроверке ? '🤖 Жду, пока пройдёте проверку «' + э(поМагазину[наПроверке].имя) + '»'
+        : сейчас ? '⏳ Смотрю «' + э(сейчас.имя) + '»' : '🧠 Разбираю найденное') + ' — ' + прошли + ' из ' + магазины.length
+        + '. Найденное появляется сразу.' + бедыМагазинов() + '</div>';
+    } else {
+      var n = всеТовары().filter(function (т) { return т.подходит; }).length;
+      var где = магазины.filter(function (м) { return подходящих(м.код); }).length;
+      var точно = всеТовары().filter(function (т) { return т.подходит && т.точно !== false; }).length;
+      h += '<div class="note">' + (n ? '✓ Подходящих ' + n + ' в ' + магазинах(где) + (понято && понято.условия ? ', точно по условиям — ' + точно : '') + '.'
+        : 'Подходящего не нашлось.') + бедыМагазинов() + '</div>';
+    }
+    $('state').innerHTML = h;
+  }
+  // Что с магазинами, где ничего нет, — словами: иначе «🤖» и «—» в ряду не понять (27.10).
+  function бедыМагазинов() {
+    var по = {};
+    магазины.forEach(function (м) { var с = статус[м.код]; if (с) (по[с.что] = по[с.что] || []).push(м); });
+    function имена(в) { return (по[в] || []).map(function (м) { return '«' + э(м.имя) + '»'; }).join(', '); }
+    var ч = [];
+    if (по['проверка']) ч.push('🤖 ' + имена('проверка') + ' — магазин просит проверку «я не робот»: нажмите на него вверху, пройдите её и «✓ Готово» — поищу там снова.');
+    if (по['непонятно']) ч.push('❔ ' + имена('непонятно') + ' — не разобрал страницу; нажмите на магазин, чтобы посмотреть.');
+    if (по['пусто']) ч.push('— ' + имена('пусто') + ' — ничего не нашлось.');
+    if (по['ошибка']) ч.push('⚠️ ' + (по['ошибка'] || []).map(function (м) { return '«' + э(м.имя) + '»: ' + э(статус[м.код].текст || 'ошибка'); }).join('; ') + '.');
+    if (по['стоп']) ч.push('■ Остановлено: ' + имена('стоп') + '.');
+    return ч.length ? '<br>' + ч.join('<br>') : '';
+  }
+  function рисоватьСортировку() {
+    var h = [['цена', '₽ Дешевле'], ['заЕд', '⚖️ За литр/кг'], ['рейтинг', '★ Рейтинг']].map(function (x) {
+      return '<button type="button" class="chip' + (сортировка === x[0] ? ' sel' : '') + '" data-sort="' + x[0] + '">' + x[1] + '</button>';
+    }).join('');
+    $('sorts').innerHTML = всеТовары().length ? h : '';
+  }
+  function рисоватьКнопку() { $('go').textContent = идёт ? 'Стоп' : 'Найти'; $('go').className = 'go' + (идёт ? ' stop' : ''); }
+  function рисовать() { рисоватьМагазины(); рисоватьКнопку(); рисоватьСостояние(); if (вкладка === 'поиск') рисоватьНайденное(); }
+
+  // ── найденное: всё — сначала точно по условиям, потом похожее (другая фасовка, размер), ниже — в чём модель засомневалась
+  function всеТовары() {
+    var out = [];
+    магазины.forEach(function (м) { (товары[м.код] || []).forEach(function (т) { out.push(т); }); });
+    return out;
+  }
+  function вКорзине(ключ) {
+    for (var i = 0; i < корзина.товары.length; i++) if (корзина.товары[i].ключ === ключ) return корзина.товары[i];
+    return null;
+  }
+  function строкаЦены(т) {
+    return '<div class="price">' + руб(т.цена) + (т.старая ? '<s>' + руб(т.старая) + '</s>' : '')
+      + (т.заЕд ? '<span class="per">' + руб(т.заЕд) + '/' + э(т.ед) + '</span>' : '') + '</div>';
+  }
+  function мета(т, сМагазином) {
+    var м = поМагазину[т.магазин] || { значок: '🛍', имя: т.магазин };
+    var ч = [];
+    if (сМагазином) ч.push(м.значок + ' ' + э(м.имя));
+    if (т.объём && т.ед) ч.push(String(т.объём).replace('.', ',') + ' ' + э(т.ед));
+    if (т.рейтинг) ч.push('★ ' + String(т.рейтинг).replace('.', ',') + (т.отзывы ? ' (' + т.отзывы + ')' : ''));
+    if (т.доставка) ч.push(э(т.доставка));
+    if (т.почему) ч.push(т.подходит ? '🔎 ' + э(т.почему) : 'не то: ' + э(т.почему));
+    return '<div class="meta">' + ч.join(' · ') + '</div>';
+  }
+  function картинка(т) { return т.img ? '<img loading="lazy" src="' + э(т.img) + '" alt="" onerror="this.outerHTML=\'<div class=ph>🛍</div>\'">' : '<div class="ph">🛍</div>'; }
+  function карточка(т) {
+    var к = вКорзине(т.ключ);
+    return '<div class="item' + (т.подходит ? '' : ' dim') + '" data-open="' + э(т.url) + '">' + картинка(т)
+      + '<div class="info"><div class="name">' + э(т.название) + '</div>' + мета(т, true) + строкаЦены(т) + '</div>'
+      + '<div class="side">' + (к ? '<div class="step" data-key="' + э(т.ключ) + '"><button type="button" data-q="-1">−</button><span>' + к.кол
+        + '</span><button type="button" data-q="1">+</button></div>' : '<button type="button" class="add" data-add="' + э(т.ключ) + '">＋ В корзину</button>')
+      + '</div></div>';
+  }
+  function порядок(a, b) {
+    if (сортировка === 'рейтинг') return (b.рейтинг || 0) - (a.рейтинг || 0) || (b.отзывы || 0) - (a.отзывы || 0) || a.цена - b.цена;
+    if (сортировка === 'заЕд') return (a.заЕд || 1e12) - (b.заЕд || 1e12) || a.цена - b.цена;
+    return a.цена - b.цена;
+  }
+  function рисоватьНайденное() {
+    рисоватьСортировку();
+    var все = всеТовары().filter(function (т) { return !фильтрМагазин || т.магазин === фильтрМагазин; }).sort(порядок);
+    var точно = все.filter(function (т) { return т.подходит && т.точно !== false; }), похоже = все.filter(function (т) { return т.подходит && т.точно === false; });
+    var нет = все.filter(function (т) { return !т.подходит; });
+    var h = '';
+    if (!все.length) {
+      var м = поМагазину[фильтрМагазин];
+      h = '<div class="empty">' + (м ? 'В «' + э(м.имя) + '» пока ничего. Нажмите «Все».' : !запрос ? '🛍' : идёт ? 'Ищу… Найденное появится здесь по мере того, как магазины ответят.'
+        : 'Ничего не нашлось. Скажите иначе — короче или другими словами.') + '</div>';
+    }
+    h += точно.slice(0, 200).map(карточка).join('');
+    if (похоже.length) h += '<div class="divider">' + (точно.length ? 'Похожие' : 'Точно по условиям не нашлось. Похожие') + ' — другая фасовка, размер или по карточке не видно: '
+      + похоже.length + '</div>' + похоже.slice(0, 200).map(карточка).join('');
+    if (нет.length) h += '<div class="divider">Может быть, не то — ' + нет.length + '. Модель засомневалась, причина — под названием:</div>' + нет.slice(0, 150).map(карточка).join('');
+    $('results').innerHTML = h;
+    var п = взять('недавние', []);
+    $('recent').innerHTML = !запрос && п.length ? п.map(function (x) { return '<button type="button" class="chip" data-recent="' + э(x) + '">🕘 ' + э(x) + '</button>'; }).join('') : '';
+  }
+
+  // ── корзина
+  function рисоватьКорзину() {
+    var т = корзина.товары;
+    $('cartN').textContent = т.length ? '(' + т.length + ' · ' + руб(корзина.итого) + ')' : '';
+    if (вкладка !== 'корзина') { $('foot').classList.add('hide'); return; }
+    if (!т.length) { $('cart').innerHTML = '<div class="empty">В корзине пусто. Найдите товар и нажмите «＋ В корзину».</div>'; $('foot').classList.add('hide'); return; }
+    var h = '';
+    корзина.магазины.forEach(function (м) {
+      h += '<div class="shop"><span>' + м.значок + ' ' + э(м.имя) + '</span><small>' + м.штук + ' шт · ' + руб(м.сумма)
+        + (м.осталось !== м.сумма ? ' · осталось ' + руб(м.осталось) : '') + '</small></div>';
+      т.filter(function (x) { return x.магазин === м.магазин; }).forEach(function (x) {
+        h += '<div class="item' + (x.куплено ? ' bought' : '') + '">' + картинка(x) + '<div class="info"><div class="name" data-open="' + э(x.url) + '">' + э(x.название) + '</div>'
+          + мета(x, false) + '<div class="price">' + руб(x.цена) + (x.кол > 1 ? '<span class="sum">× ' + x.кол + ' = ' + руб(x.цена * x.кол) + '</span>' : '') + '</div>'
+          + (x.заметка ? '<div class="meta">📝 ' + э(x.заметка) + '</div>' : '')
+          + '<div class="row"><div class="step" data-id="' + x.id + '"><button type="button" data-q="-1">−</button><span>' + x.кол + '</span><button type="button" data-q="1">+</button></div>'
+          + '<button type="button" class="mini' + (x.куплено ? ' on' : '') + '" data-bought="' + x.id + '">' + (x.куплено ? '✓ Куплено' : '☐ Куплено') + '</button></div>'
+          + '<div class="row"><button type="button" class="mini" data-note="' + x.id + '">✏️ Заметка</button><button type="button" class="mini" data-open="' + э(x.url) + '">↗ Открыть</button>'
+          + '<button type="button" class="mini" data-del="' + x.id + '">🗑 Убрать</button></div></div></div>';
+      });
+    });
+    $('cart').innerHTML = h;
+    $('foot').innerHTML = '<span>Итого ' + руб(корзина.итого) + '</span><small>' + (корзина.осталось !== корзина.итого ? 'осталось купить ' + руб(корзина.осталось) : т.length + ' поз.') + '</small>';
+    $('foot').classList.remove('hide');
+  }
+  function принятьКорзину(r) {
+    if (!r || !r.ок) { тост('⚠️ ' + ((r && r.ошибка) || 'корзина не ответила')); return; }
+    корзина = { товары: r.товары || [], магазины: r.магазины || [], итого: r.итого || 0, осталось: r.осталось || 0 };
+    хранить('корзина', корзина);
+    рисоватьКорзину();
+    if (вкладка === 'поиск') рисоватьНайденное();
+  }
+  function правка(тело) { return позвать(тело).then(принятьКорзину); }
+
+  // ── нажатия
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button, [data-open]');
+    if (!t) return;
+    if (t.id === 'tFind' || t.id === 'tCart') {
+      вкладка = t.id === 'tFind' ? 'поиск' : 'корзина';
+      $('tFind').classList.toggle('on', вкладка === 'поиск'); $('tCart').classList.toggle('on', вкладка === 'корзина');
+      $('find').classList.toggle('hide', вкладка !== 'поиск'); $('findBar').classList.toggle('hide', вкладка !== 'поиск');
+      $('cart').classList.toggle('hide', вкладка !== 'корзина');
+      рисоватьКорзину();
+      if (вкладка === 'корзина') правка({ что: 'корзина' }); else рисоватьНайденное();
+      return;
+    }
+    if (t.id === 'go') { if (идёт) стоп(); else искать($('q').value); return; }
+    if (t.dataset.recent) { искать(t.dataset.recent); return; }
+    if (t.dataset.raw) { искать(запрос, true); return; }
+    if (t.dataset.shop !== undefined) {
+      var к = t.dataset.shop, с = статус[к];
+      if (к && с && ['проверка', 'непонятно', 'пусто', 'ошибка', 'стоп'].indexOf(с.что) >= 0 && !(товары[к] || []).length) { показать(к); рисовать(); return; }
+      фильтрМагазин = фильтрМагазин === к ? '' : к;
+      рисоватьМагазины(); рисоватьНайденное();
+      return;
+    }
+    if (t.dataset.sort) { сортировка = t.dataset.sort; рисоватьНайденное(); return; }
+    if (t.dataset.add) {
+      var т = всеТовары().filter(function (x) { return x.ключ === t.dataset.add; })[0];
+      if (!т) return;
+      t.disabled = true; t.textContent = '…';
+      правка({ что: 'в корзину', товар: т, запрос: запрос, кол: 1 }).then(function () { тост('🧺 В корзине: ' + т.название.slice(0, 40)); });
+      e.stopPropagation();
+      return;
+    }
+    if (t.dataset.q) {
+      var шаг = t.closest('.step'), d = Number(t.dataset.q);
+      var строка = шаг.dataset.id ? корзина.товары.filter(function (x) { return String(x.id) === шаг.dataset.id; })[0] : вКорзине(шаг.dataset.key);
+      if (!строка) return;
+      var кол = строка.кол + d;
+      if (кол < 1) правка({ что: 'убрать', id: строка.id });
+      else { строка.кол = кол; шаг.querySelector('span').textContent = кол; правка({ что: 'кол', id: строка.id, кол: кол }); }
+      e.stopPropagation();
+      return;
+    }
+    if (t.dataset.bought) {
+      var б = корзина.товары.filter(function (x) { return String(x.id) === t.dataset.bought; })[0];
+      правка({ что: 'куплено', id: Number(t.dataset.bought), да: !(б && б.куплено) });
+      return;
+    }
+    if (t.dataset.del) { правка({ что: 'убрать', id: Number(t.dataset.del) }); return; }
+    if (t.dataset.note) {
+      var н = корзина.товары.filter(function (x) { return String(x.id) === t.dataset.note; })[0];
+      var текст = window.prompt('Заметка к товару (цвет, колер, для чего):', (н && н.заметка) || '');
+      if (текст !== null) правка({ что: 'заметка', id: Number(t.dataset.note), заметка: текст });
+      return;
+    }
+    if (t.dataset.open) { if (Pomo) Pomo.open(t.dataset.open); else window.open(t.dataset.open, '_blank'); }
+  });
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') искать($('q').value); });
+
+  // ── старт: магазины, корзина, прошлый поиск; ?q=… из кнопки бота — искать сразу
+  window.podborStart = function (q) {
+    try { localStorage.removeItem('выключены'); } catch (e) { /* 2.19: долгое нажатие выключало магазины — больше нет */ }
+    позвать({ что: 'магазины' }).then(function (r) {
+      магазины = (r && r.ок && r.магазины) || взять('магазины', []);
+      if (r && r.ок) хранить('магазины', магазины);
+      поМагазину = {}; магазины.forEach(function (м) { поМагазину[м.код] = м; });
+      var прошлый = взять('поиск', null);
+      if (прошлый && Date.now() - прошлый.когда < 3 * 24 * 3600 * 1000 && !q) {
+        запрос = прошлый.запрос; понято = прошлый.понято || { поиск: запрос, условия: '', сортировка: '' };
+        товары = прошлый.товары || {}; статус = прошлый.статус || {}; адреса = прошлый.адреса || {};
+        Object.keys(статус).forEach(function (к) { if (['жду', 'ищу', 'разбираю'].indexOf(статус[к].что) >= 0) статус[к] = { что: 'стоп' }; });
+        $('q').value = запрос;
+      }
+      рисовать();
+      if (q) искать(q);
+    });
+    корзина = взять('корзина', корзина); рисоватьКорзину();
+    позвать({ что: 'корзина' }).then(принятьКорзину);
+  };
+  if (!Pomo) window.podborStart('');
+})();
+</script>
+</body>
+</html>
