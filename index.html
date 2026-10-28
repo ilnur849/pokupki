@@ -15,11 +15,11 @@
 <!-- Скрипт Telegram — своя копия рядом (telegram.org без VPN в России часто недоступен, и страница висела бы
      на нём белым экраном), грузится не блокируя. Подпись (initData) уже взята из адреса выше; скрипт ждём не
      дольше 2,5 с. Обновлять копию: curl -o страница/telegram-web-app.js https://telegram.org/js/telegram-web-app.js -->
-<script src="telegram-web-app.js?v=e4062b4a15" async
+<script src="telegram-web-app.js?v=cd344eeb4a" async
   onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
   onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
-<script src="config.js?v=e4062b4a15"></script>
-<script src="logika.js?v=e4062b4a15"></script>
+<script src="config.js?v=cd344eeb4a"></script>
+<script src="logika.js?v=cd344eeb4a"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -83,6 +83,12 @@
   .текст { flex: 1; min-width: 0; padding: 9px 0; }
   .имя { overflow-wrap: anywhere; }
   .колво { color: var(--accent); font-weight: 600; white-space: nowrap; margin-left: 6px; }
+  /* Кто добавил (28.10): буква в кружке у товара, который внёс другой человек; точка — появилось после вашего прошлого захода. */
+  .кто { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: var(--text);
+    font-size: 11px; font-weight: 700; margin-left: 6px; vertical-align: -4px; position: relative; opacity: .8; }
+  .кто.нов::after { content: ""; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+    border: 2px solid var(--card); }
+  .позиция.куплено .кто { opacity: .5; }
   .заметка { color: var(--hint); font-size: 14px; margin-top: 1px; overflow-wrap: anywhere; }
   .позиция.куплено .имя { text-decoration: line-through; color: var(--hint); }
   .позиция.куплено .колво { color: var(--hint); }
@@ -162,7 +168,8 @@ function главное() {
   }
   var initData = (tg && tg.initData) || window.ИЗ_АДРЕСА || '';
   var API = window.ПОКУПКИ_API || '';
-  var КЭШ = 'покупки.состояние', ОЧЕРЕДЬ = 'покупки.очередь', СВЁРНУТО = 'покупки.куплено-свёрнуто', ГРУППЫ_СВЁРНУТЫ = 'покупки.группы-свёрнуты';
+  var КЭШ = 'покупки.состояние', ОЧЕРЕДЬ = 'покупки.очередь', СВЁРНУТО = 'покупки.куплено-свёрнуто', ГРУППЫ_СВЁРНУТЫ = 'покупки.группы-свёрнуты',
+    ВИДЕННЫЕ = 'покупки.виденные';
   var $ = function (id) { return document.getElementById(id); };
   var э = function (с) { return String(с === undefined || с === null ? '' : с).replace(/[&<>"']/g, function (ч) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ч]; }); };
@@ -175,6 +182,9 @@ function главное() {
   var очередь = хранить.взять(ОЧЕРЕДЬ, []);        // действия, ещё не дошедшие до таблицы
   var свёрнуто = хранить.взять(СВЁРНУТО, true);
   var свёрнутыеГруппы = хранить.взять(ГРУППЫ_СВЁРНУТЫ, []);   // ключи групп, которые свернули (28.10)
+  // id позиций, которые были на экране в прошлый заход (28.10): чужое, чего там не было, — с точкой «новое».
+  // null — первый заход на этом телефоне, новым ничего не считаем.
+  var виденныеПрежде = хранить.взять(ВИДЕННЫЕ, null);
   var ошибка = '';                                  // нет доступа / не подключено — показываем вместо списка
   var отправляю = false, связь = true;
 
@@ -281,13 +291,23 @@ function главное() {
         + (свёрнуто ? '' : купленные.map(строка).join('')) + '</section>';
     }
     список.innerHTML = html;
+    // Что сейчас на экране — «виденное» для следующего захода (снимок прошлого захода не трогаем).
+    if (сервер) хранить.положить(ВИДЕННЫЕ, с.позиции.map(function (x) { return x.id; }));
+  }
+  // Кружок с буквой у товара, который внёс другой человек; свои — без пометки.
+  function ктоДобавил(x) {
+    var я = сервер && сервер.я && сервер.я.имя;
+    if (!x.добавил || !я || x.добавил === я) return '';
+    var нов = !!виденныеПрежде && виденныеПрежде.indexOf(x.id) < 0 && !x.куплено;
+    return '<span class="кто' + (нов ? ' нов' : '') + '" title="' + э((нов ? 'новое · ' : '') + 'добавил(а) ' + x.добавил) + '">'
+      + э(String(x.добавил).charAt(0).toUpperCase()) + '</span>';
   }
   function строка(x) {
     // Ссылка в заметке (товар с ВБ, Озона…) — кнопкой «🔗 ВБ», сама ссылка в тексте не показывается.
     var урлы = ссылки(x.заметка), словами = безСсылок(x.заметка);
     return '<div class="позиция' + (x.куплено ? ' куплено' : '') + (x.группа === ГРУППА_ДЕЛ ? ' дело' : '') + '" data-id="' + э(x.id) + '" role="button">'
       + '<span class="кружок"></span><div class="текст"><div class="имя">' + э(x.товар)
-      + (x.колво ? '<span class="колво" data-колво="' + э(x.id) + '">' + э(x.колво) + '</span>' : '') + '</div>'
+      + (x.колво ? '<span class="колво" data-колво="' + э(x.id) + '">' + э(x.колво) + '</span>' : '') + ктоДобавил(x) + '</div>'
       + (словами ? '<div class="заметка">' + э(словами) + '</div>' : '')
       + урлы.map(function (у) { return '<button type="button" class="ссылка" data-ссылка="' + э(у) + '">🔗 ' + э(магазин(у)) + '</button>'; }).join(' ')
       + '</div><button class="ещё" data-ещё="' + э(x.id) + '" aria-label="Изменить">⋯</button></div>';
