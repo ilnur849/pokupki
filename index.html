@@ -15,11 +15,11 @@
 <!-- Скрипт Telegram — своя копия рядом (telegram.org без VPN в России часто недоступен, и страница висела бы
      на нём белым экраном), грузится не блокируя. Подпись (initData) уже взята из адреса выше; скрипт ждём не
      дольше 2,5 с. Обновлять копию: curl -o страница/telegram-web-app.js https://telegram.org/js/telegram-web-app.js -->
-<script src="telegram-web-app.js?v=ac5567bdab" async
+<script src="telegram-web-app.js?v=e4062b4a15" async
   onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
   onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
-<script src="config.js?v=ac5567bdab"></script>
-<script src="logika.js?v=ac5567bdab"></script>
+<script src="config.js?v=e4062b4a15"></script>
+<script src="logika.js?v=e4062b4a15"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -42,7 +42,7 @@
   [hidden] { display: none !important; }   /* иначе display:flex у подсказок и низа перебивает hidden */
   html, body { margin: 0; background: var(--section); color: var(--text);
     font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-  body { padding: 0 0 calc(84px + env(safe-area-inset-bottom)); min-height: 100vh; }
+  body { padding: 0 0 calc(24px + env(safe-area-inset-bottom)); min-height: 100vh; }
   .шапка { position: sticky; top: 0; z-index: 5; background: var(--section); padding: 12px 16px 8px; }
   .строка { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   h1 { font-size: 22px; margin: 0; font-weight: 700; }
@@ -62,6 +62,12 @@
   section { margin: 14px 12px 0; background: var(--card); border-radius: 14px; overflow: hidden; }
   section h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--hint);
     margin: 0; padding: 10px 14px 4px; }
+  /* Заголовок группы — кнопка: число товаров и сворачивание (28.10). */
+  section h2 .гр { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 8px; border: 0;
+    background: none; padding: 0; margin: 0; font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit;
+    text-align: left; cursor: pointer; }
+  section h2 .гр .стрелка { font-size: 12px; opacity: .8; }
+  section.свёрнута h2 { padding-bottom: 10px; }
   .позиция { display: flex; align-items: center; gap: 12px; padding: 0 4px 0 14px; min-height: 52px;
     border-top: 1px solid var(--line); cursor: pointer; user-select: none; }
   section h2 + .позиция { border-top: 0; }
@@ -82,17 +88,28 @@
   .позиция.куплено .колво { color: var(--hint); }
   .ещё { flex: none; width: 44px; height: 44px; border: 0; background: transparent; color: var(--hint); font-size: 20px;
     border-radius: 10px; cursor: pointer; }
-  .куплено-шапка { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0;
+  /* Шапка «Куплено»: слева свернуть/раскрыть, справа «🧹 Очистить» (28.10; раньше — плавающая кнопка, закрывавшая низ списка). */
+  .куплено-ряд { display: flex; align-items: center; }
+  .куплено-шапка { display: flex; justify-content: space-between; align-items: center; flex: 1; min-width: 0; border: 0;
     background: transparent; color: var(--hint); font: inherit; font-size: 14px; font-weight: 600; padding: 12px 14px; cursor: pointer; }
+  .очистить-кн { flex: none; margin-right: 10px; border: 1px solid var(--line); background: transparent; color: var(--text);
+    border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
   .пусто { text-align: center; color: var(--hint); padding: 48px 28px; }
   .пусто b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
-  .низ { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
-    background: linear-gradient(to top, var(--section) 70%, transparent); display: flex; gap: 8px; z-index: 6; }
-  .низ .кнопка { flex: 1; background: var(--card); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
-  .статус { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(70px + env(safe-area-inset-bottom));
+  .статус { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom));
     background: rgba(28, 30, 34, .9); color: #fff; font-size: 14px; padding: 8px 14px;
     border-radius: 999px; max-width: calc(100% - 32px); text-align: center; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 7; }
   .статус.видно { opacity: 1; }
+  /* «✓ молоко — куплено · Отменить» (28.10): отмеченное уезжает в свёрнутое «Куплено», вернуть иначе — раскрывать его. */
+  .статус.с-кнопкой { pointer-events: auto; }
+  .статус .отмена { margin-left: 8px; border: 0; background: transparent; color: #8ab4ff; font: inherit; font-size: 14px;
+    font-weight: 600; cursor: pointer; padding: 0; }
+  /* Количество: «−  2  +» в карточке; нажатие на синее число в списке открывает её сразу на этом поле (28.10). */
+  .колво-ряд { display: flex; gap: 8px; align-items: center; }
+  .колво-ряд input { flex: 1; min-width: 0; }
+  .шаг { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--section);
+    color: var(--text); font: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+  .колво { cursor: pointer; }
   .лист-фон { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 10; display: none; }
   .лист { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-radius: 18px 18px 0 0; z-index: 11;
     padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: none; max-height: 85vh; overflow-y: auto; }
@@ -115,13 +132,12 @@
 <div class="шапка">
   <div class="строка"><h1>🛒 Покупки</h1><span class="осталось" id="осталось"></span></div>
   <form class="добавить" id="форма" autocomplete="off">
-    <input id="поле" enterkeyhint="done" placeholder="Добавить: молоко 2, хлеб, забрать ВБ, ссылка на товар…" aria-label="Что добавить">
+    <input id="поле" enterkeyhint="done" placeholder="Добавить…" aria-label="Что добавить">
     <button type="submit" aria-label="Добавить">＋</button>
   </form>
 </div>
 <div class="подсказки" id="подсказки" hidden></div>
 <main id="список"></main>
-<div class="низ" id="низ" hidden><button class="кнопка" id="очистить" type="button">🧹 Очистить купленное</button></div>
 <div class="статус" id="статус" role="status"></div>
 <div id="окно"><div class="лист-фон" id="фон"></div><div class="лист" id="лист"></div></div>
 
@@ -146,7 +162,7 @@ function главное() {
   }
   var initData = (tg && tg.initData) || window.ИЗ_АДРЕСА || '';
   var API = window.ПОКУПКИ_API || '';
-  var КЭШ = 'покупки.состояние', ОЧЕРЕДЬ = 'покупки.очередь', СВЁРНУТО = 'покупки.куплено-свёрнуто';
+  var КЭШ = 'покупки.состояние', ОЧЕРЕДЬ = 'покупки.очередь', СВЁРНУТО = 'покупки.куплено-свёрнуто', ГРУППЫ_СВЁРНУТЫ = 'покупки.группы-свёрнуты';
   var $ = function (id) { return document.getElementById(id); };
   var э = function (с) { return String(с === undefined || с === null ? '' : с).replace(/[&<>"']/g, function (ч) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ч]; }); };
@@ -158,6 +174,7 @@ function главное() {
   var сервер = хранить.взять(КЭШ, null);          // последний ответ скрипта
   var очередь = хранить.взять(ОЧЕРЕДЬ, []);        // действия, ещё не дошедшие до таблицы
   var свёрнуто = хранить.взять(СВЁРНУТО, true);
+  var свёрнутыеГруппы = хранить.взять(ГРУППЫ_СВЁРНУТЫ, []);   // ключи групп, которые свернули (28.10)
   var ошибка = '';                                  // нет доступа / не подключено — показываем вместо списка
   var отправляю = false, связь = true;
 
@@ -165,10 +182,25 @@ function главное() {
   var таймерСтатуса;
   function статус(текст, надолго) {
     var с = $('статус');
-    с.textContent = текст; с.classList.toggle('видно', !!текст);
+    с.textContent = текст; с.classList.toggle('видно', !!текст); с.classList.remove('с-кнопкой');
     clearTimeout(таймерСтатуса);
     if (текст && !надолго) таймерСтатуса = setTimeout(function () { с.classList.remove('видно'); }, 2600);
   }
+  // Отметили купленным — четыре секунды можно вернуть одним нажатием, не раскрывая «Куплено» (28.10).
+  function статусОтмена(текст, id) {
+    var с = $('статус');
+    с.innerHTML = э(текст) + '<button type="button" class="отмена" data-отмена="' + э(id) + '">Отменить</button>';
+    с.classList.add('видно', 'с-кнопкой');
+    clearTimeout(таймерСтатуса);
+    таймерСтатуса = setTimeout(function () { с.classList.remove('видно', 'с-кнопкой'); }, 4000);
+  }
+  $('статус').addEventListener('click', function (e) {
+    var б = e.target.closest('[data-отмена]');
+    if (!б) return;
+    $('статус').classList.remove('видно', 'с-кнопкой');
+    вибро('light');
+    действие({ тип: 'отметить', id: б.getAttribute('data-отмена'), купить: false });
+  });
 
   // Что видит человек: ответ скрипта + ещё не отправленные действия поверх.
   function применить(сост, д) {
@@ -222,37 +254,40 @@ function главное() {
     бп.подсказки = подск;
     if (ошибка) {
       список.innerHTML = '<div class="пусто"><b>Список не открылся</b>' + э(ошибка) + '</div>';
-      $('низ').hidden = true;
       return;
     }
     if (!с.позиции.length) {
-      список.innerHTML = сервер ? '<div class="пусто"><b>Список пуст</b>Добавьте товары сверху или пришлите список боту — текстом, голосом или фото записки.</div>'
+      список.innerHTML = сервер ? '<div class="пусто"><b>Список пуст</b>Добавьте товары сверху — например: «молоко 2, хлеб, забрать ВБ» — '
+        + 'или пришлите список боту текстом, голосом или фото записки.</div>'
         : '<div class="пусто">Загружаю список…</div>';
-      $('низ').hidden = true;
       return;
     }
     var html = '';
     ГРУППЫ.forEach(function (г) {
       var свои = активные.filter(function (x) { return (КЛЮЧИ_ГРУПП.indexOf(x.группа) >= 0 ? x.группа : 'прочее') === г.ключ; });
       if (!свои.length) return;
-      html += '<section><h2>' + г.значок + ' ' + э(г.имя) + '</h2>' + свои.map(строка).join('') + '</section>';
+      // Заголовок — с числом и сворачиванием (28.10): длинный список листается короче.
+      var свёрнута = свёрнутыеГруппы.indexOf(г.ключ) >= 0;
+      html += '<section' + (свёрнута ? ' class="свёрнута"' : '') + '><h2><button type="button" class="гр" data-группа-тумблер="' + э(г.ключ) + '">'
+        + '<span>' + г.значок + ' ' + э(г.имя) + ' · ' + свои.length + '</span><span class="стрелка">' + (свёрнута ? '▸' : '▾') + '</span></button></h2>'
+        + (свёрнута ? '' : свои.map(строка).join('')) + '</section>';
     });
-    if (!активные.length) html += '<div class="пусто"><b>🎉 Всё куплено</b>Можно очистить список кнопкой внизу.</div>';
+    if (!активные.length) html += '<div class="пусто"><b>🎉 Всё куплено</b>Можно очистить список — кнопка у «Куплено».</div>';
     else if (!товаров) html += '<div class="пусто"><b>🎉 Продукты куплены</b>Остались только дела по дороге.</div>';
     if (купленные.length) {
-      html += '<section><button class="куплено-шапка" id="куплено-шапка" type="button"><span>✅ Куплено · ' + купленные.length
+      html += '<section><div class="куплено-ряд"><button class="куплено-шапка" id="куплено-шапка" type="button"><span>✅ Куплено · ' + купленные.length
         + '</span><span>' + (свёрнуто ? 'показать ▾' : 'скрыть ▴') + '</span></button>'
+        + '<button class="очистить-кн" id="очистить" type="button">🧹 Очистить</button></div>'
         + (свёрнуто ? '' : купленные.map(строка).join('')) + '</section>';
     }
     список.innerHTML = html;
-    $('низ').hidden = !купленные.length;
   }
   function строка(x) {
     // Ссылка в заметке (товар с ВБ, Озона…) — кнопкой «🔗 ВБ», сама ссылка в тексте не показывается.
     var урлы = ссылки(x.заметка), словами = безСсылок(x.заметка);
     return '<div class="позиция' + (x.куплено ? ' куплено' : '') + (x.группа === ГРУППА_ДЕЛ ? ' дело' : '') + '" data-id="' + э(x.id) + '" role="button">'
       + '<span class="кружок"></span><div class="текст"><div class="имя">' + э(x.товар)
-      + (x.колво ? '<span class="колво">' + э(x.колво) + '</span>' : '') + '</div>'
+      + (x.колво ? '<span class="колво" data-колво="' + э(x.id) + '">' + э(x.колво) + '</span>' : '') + '</div>'
       + (словами ? '<div class="заметка">' + э(словами) + '</div>' : '')
       + урлы.map(function (у) { return '<button type="button" class="ссылка" data-ссылка="' + э(у) + '">🔗 ' + э(магазин(у)) + '</button>'; }).join(' ')
       + '</div><button class="ещё" data-ещё="' + э(x.id) + '" aria-label="Изменить">⋯</button></div>';
@@ -305,7 +340,8 @@ function главное() {
       связь = true;
       var ок = принять(ответ);
       if (!ок && ответ && !ответ.нетДоступа && ответ.подпись !== false) статус('Не сохранилось: ' + (ответ.ошибка || 'ошибка'));
-      else if (!очередь.slice(1).length) статус('');
+      // Очередь дошла — гасим «Нет связи…», но не «✓ … куплено · Отменить»: ответ приходит быстрее, чем человек его прочтёт.
+      else if (!очередь.slice(1).length && !$('статус').classList.contains('с-кнопкой')) статус('');
       очередь.shift();
       хранить.положить(ОЧЕРЕДЬ, очередь);
       дальше();
@@ -340,8 +376,17 @@ function главное() {
   $('список').addEventListener('click', function (e) {
     var ещё = e.target.closest('[data-ещё]');
     if (ещё) { e.stopPropagation(); открыть(ещё.getAttribute('data-ещё')); return; }
+    var кол = e.target.closest('[data-колво]');
+    if (кол) { e.stopPropagation(); открыть(кол.getAttribute('data-колво'), true); return; }
     var сс = e.target.closest('[data-ссылка]');
     if (сс) { e.stopPropagation(); вибро('light'); открытьСсылку(сс.getAttribute('data-ссылка')); return; }
+    var гр = e.target.closest('[data-группа-тумблер]');
+    if (гр) {
+      var ключ = гр.getAttribute('data-группа-тумблер'), i = свёрнутыеГруппы.indexOf(ключ);
+      if (i >= 0) свёрнутыеГруппы.splice(i, 1); else свёрнутыеГруппы.push(ключ);
+      хранить.положить(ГРУППЫ_СВЁРНУТЫ, свёрнутыеГруппы); нарисовать(); return;
+    }
+    if (e.target.closest('#очистить')) { вибро('medium'); действие({ тип: 'очистить' }); return; }
     if (e.target.closest('#куплено-шапка')) { свёрнуто = !свёрнуто; хранить.положить(СВЁРНУТО, свёрнуто); нарисовать(); return; }
     var п = e.target.closest('.позиция');
     if (!п) return;
@@ -350,6 +395,7 @@ function главное() {
     if (!x) return;
     вибро(x.куплено ? 'light' : 'medium');
     действие({ тип: 'отметить', id: id, купить: !x.куплено });
+    if (!x.куплено) статусОтмена('✓ ' + x.товар + ' — куплено', id);
   });
   $('форма').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -373,10 +419,9 @@ function главное() {
     вибро('light');
     действие({ тип: 'добавить', позиции: [{ id: новыйID(), товар: п.товар, колво: п.колво || '', заметка: '', группа: п.группа }] });
   });
-  $('очистить').addEventListener('click', function () { вибро('medium'); действие({ тип: 'очистить' }); });
-
   // ── карточка товара: группа, количество, заметка, удалить
-  function открыть(id) {
+  // фокусКолво — открыли нажатием на число в списке: курсор сразу в «Сколько».
+  function открыть(id, фокусКолво) {
     var x = вид().позиции.find(function (y) { return y.id === id; });
     if (!x) return;
     var лист = $('лист');
@@ -384,7 +429,9 @@ function главное() {
       + '<label>Группа</label><div class="группы">' + ГРУППЫ.map(function (г) {
         return '<button type="button" data-группа="' + г.ключ + '" class="' + (г.ключ === x.группа ? 'выбрана' : '') + '">' + г.значок + ' ' + э(г.имя) + '</button>';
       }).join('') + '</div>'
-      + '<label for="и-колво">Сколько</label><input id="и-колво" value="' + э(x.колво) + '" placeholder="2 · 1 кг · 10 шт">'
+      + '<label for="и-колво">Сколько</label><div class="колво-ряд"><button type="button" class="шаг" id="и-минус" aria-label="Меньше">−</button>'
+      + '<input id="и-колво" value="' + э(x.колво) + '" placeholder="2 · 1 кг · 10 шт" inputmode="text">'
+      + '<button type="button" class="шаг" id="и-плюс" aria-label="Больше">+</button></div>'
       + '<label for="и-заметка">Заметка' + (ссылки(x.заметка).length ? ' (со ссылкой)' : '') + '</label><input id="и-заметка" value="' + э(x.заметка) + '" placeholder="например: тот, что в синей пачке — или ссылка на товар">'
       + '<div class="ряд-кнопок"><button class="кнопка опасно" type="button" id="и-удалить">Удалить</button>'
       + '<button class="кнопка" type="button" id="и-сохранить">Сохранить</button></div>';
@@ -392,6 +439,16 @@ function главное() {
     лист.querySelectorAll('[data-группа]').forEach(function (б) {
       б.onclick = function () { группа = б.getAttribute('data-группа'); лист.querySelectorAll('[data-группа]').forEach(function (в) { в.classList.toggle('выбрана', в === б); }); };
     });
+    // «−» / «+»: число в начале («2», «1 кг», «10 шт») меняется на единицу, пусто — это одна штука; «десяток» не трогаем.
+    function шаг(д) {
+      var п = $('и-колво'), з = п.value.trim(), м = /^(\d+)(.*)$/.exec(з);
+      if (!з) { if (д > 0) п.value = '2'; return; }
+      if (!м) return;
+      var н = Math.max(1, parseInt(м[1], 10) + д);
+      п.value = (н === 1 && !м[2].trim() ? '' : String(н)) + м[2];
+    }
+    $('и-минус').onclick = function () { вибро('light'); шаг(-1); };
+    $('и-плюс').onclick = function () { вибро('light'); шаг(1); };
     $('и-сохранить').onclick = function () {
       var колво = $('и-колво').value.trim(), заметка = $('и-заметка').value.trim();
       if (группа !== x.группа) действие({ тип: 'группа', id: id, группа: группа });
@@ -400,6 +457,7 @@ function главное() {
     };
     $('и-удалить').onclick = function () { вибро('medium'); действие({ тип: 'удалить', id: id }); закрыть(); };
     $('окно').classList.add('открыт');
+    if (фокусКолво) { try { $('и-колво').focus(); $('и-колво').select(); } catch (e) { /* без фокуса */ } }
   }
   function закрыть() { $('окно').classList.remove('открыт'); }
   $('фон').addEventListener('click', закрыть);
