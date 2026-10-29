@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Задачи — админка</title>
+<script src="luxon.min.js?v=3.7.2"></script>
+<script async src="telegram-web-app.js"></script>
+<style>
+  /* Светлая по умолчанию, тёмная — из Telegram или из настроек телефона. */
+  :root {
+    --bg:#f1f3f5; --card:#fff; --t:#14171a; --m:#6b7280; --b:#e3e6ea; --тень:0 1px 2px rgba(0,0,0,.06);
+    --acc:#2f81f7; --acc-фон:#e8f1ff; --ok:#17914a; --ok-фон:#e6f6ec;
+    --warn:#c77700; --warn-фон:#fdf3e3; --bad:#d64541; --bad-фон:#fdecec;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg:#15181c; --card:#1e2228; --t:#e9edf2; --m:#96a0ad; --b:#2c323a; --тень:none;
+    --acc:#5ea2ff; --acc-фон:#1d2a3d; --ok:#4bc47d; --ok-фон:#16301f;
+    --warn:#e8a33d; --warn-фон:#332512; --bad:#ff6b63; --bad-фон:#3a1f1e;
+  } }
+  :root[data-theme="dark"] {
+    --bg:#15181c; --card:#1e2228; --t:#e9edf2; --m:#96a0ad; --b:#2c323a; --тень:none;
+    --acc:#5ea2ff; --acc-фон:#1d2a3d; --ok:#4bc47d; --ok-фон:#16301f;
+    --warn:#e8a33d; --warn-фон:#332512; --bad:#ff6b63; --bad-фон:#3a1f1e;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+  body { margin:0; background:var(--bg); color:var(--t);
+         font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif }
+  header { position:sticky; top:0; z-index:6; background:var(--card); border-bottom:1px solid var(--b) }
+  .tabs { display:flex }
+  .tabs button { flex:1; padding:9px 2px 7px; border:0; background:none; color:var(--m);
+                 font:inherit; font-size:12px; line-height:1.2; border-bottom:3px solid transparent;
+                 display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; position:relative }
+  .tabs button b { font-size:20px; line-height:1; font-weight:400 }
+  .tabs button.on { color:var(--acc); border-color:var(--acc); font-weight:600 }
+  /* Цифры на вкладках (28.10): просрочено и на приёмку — на «Делах», хвосты — на «Я». */
+  .tabs button .бдж { position:absolute; top:3px; left:calc(50% + 6px); min-width:17px; height:17px; padding:0 4px;
+                      border-radius:9px; font-size:11px; line-height:17px; font-weight:700; font-style:normal;
+                      color:#fff; background:var(--bad) }
+  .tabs button .бдж.warn { background:var(--warn) }
+  /* «⟳» со временем данных — на всех вкладках, а не кнопка «Обновить» на одной «Я» (28.10). */
+  .tabs button.обн { flex:0 0 56px }
+  .tabs button.обн span { font-size:10px; white-space:nowrap }
+  .состояние { position:sticky; top:59px; z-index:5; background:var(--acc-фон); color:var(--acc);
+               font-size:14px; padding:7px 14px; border-bottom:1px solid var(--b) }
+  main { padding:12px 12px 40px; max-width:820px; margin:0 auto }
+
+  /* Плитки-фильтры: цифры дня и вход в нужный список одним касанием. */
+  .плитки { display:flex; gap:8px; margin-bottom:14px }
+  .плитка { flex:1; background:var(--card); border:1px solid var(--b); border-radius:14px;
+            padding:11px 8px; text-align:center; cursor:pointer; box-shadow:var(--тень) }
+  /* Плитка красится, как виджет (28.10): есть просрочка — красная, ждёт приёмки — жёлтая; серая — нули. */
+  .плитка.bad { border-color:var(--bad); background:var(--bad-фон) }
+  .плитка.bad .ц, .плитка.bad .п { color:var(--bad) }
+  .плитка.warn { border-color:var(--warn); background:var(--warn-фон) }
+  .плитка.warn .ц, .плитка.warn .п { color:var(--warn) }
+  .плитка.on { border-color:var(--acc); background:var(--acc-фон); box-shadow:0 0 0 2px var(--acc) inset }
+  .плитка .ц { font-size:24px; font-weight:700; line-height:1.1 }
+  .плитка .п { font-size:12px; color:var(--m); margin-top:2px }
+  .плитка.on .п { color:var(--acc) }
+  .плитка.on.bad .п, .плитка.on.bad .ц { color:var(--bad) }
+  .плитка.on.warn .п, .плитка.on.warn .ц { color:var(--warn) }
+
+  h2 { font-size:14px; color:var(--m); margin:14px 0 6px; display:flex; align-items:center; gap:8px;
+       font-weight:600 }
+  .кто { width:26px; height:26px; border-radius:50%; display:inline-grid; place-items:center;
+         flex:none; color:#fff; font-size:13px; font-weight:700; vertical-align:-8px; margin-right:3px }
+  .день { font-size:15px; font-weight:700; margin:20px 0 8px }
+
+  /* Карточки плотные (25.10): было ~5 на экран, «Скоро» — 23 экрана прокрутки. */
+  .card { position:relative; background:var(--card); border:1px solid var(--b); border-radius:12px;
+          padding:8px 10px 8px 14px; margin-bottom:6px; box-shadow:var(--тень); overflow:hidden }
+  .card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--m) }
+  .card.s-Назначена::before { background:var(--acc) }
+  .card.s-Перенесена::before, .card.s-Ждёт::before { background:var(--warn) }
+  .card.s-Выполнена::before, .card.s-Принято::before { background:var(--ok) }
+  .card.s-Отменена::before, .card.s-Не::before, .card.s-Проблема::before { background:var(--bad) }
+  .card.off { opacity:.55 }
+  /* Просроченная — красная полоска, какой бы ни был статус (28.10: «Назначена» синей не выдавала беды). */
+  .card.проср::before { background:var(--bad) }
+  .шапка { display:flex; gap:8px; align-items:flex-start }
+  .имя { font-size:15px; line-height:1.3; font-weight:600; flex:1; min-width:0; overflow-wrap:anywhere;
+         display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden }
+  .ещё { flex:none; width:34px; height:28px; border:1px solid var(--b); border-radius:8px;
+         background:none; color:var(--m); font-size:16px; line-height:1; cursor:pointer; margin:-2px -2px 0 0 }
+  .мета { color:var(--m); font-size:13px; line-height:1.35; margin-top:3px }
+  .мета .кто { width:17px; height:17px; font-size:10px; vertical-align:-3px; margin-right:2px }
+  /* Карточка ещё не ушла (планировщик): пунктир — «придёт», а не «висит». */
+  .card.ждёт { border-style:dashed; background:transparent }
+  .бейдж { display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:99px;
+           background:var(--b); color:var(--m); margin-right:6px; vertical-align:1px }
+  .бейдж.ok { background:var(--ok-фон); color:var(--ok) }
+  .бейдж.warn { background:var(--warn-фон); color:var(--warn) }
+  .бейдж.bad { background:var(--bad-фон); color:var(--bad) }
+  .бейдж.acc { background:var(--acc-фон); color:var(--acc) }
+  .отчёт { margin-top:6px; padding:7px 9px; background:var(--bg); border-radius:9px;
+           white-space:pre-wrap; font-size:14px; line-height:1.35; display:flex; gap:9px; align-items:flex-start }
+  .отчёт > span { flex:1; min-width:0 }
+  /* Отчётное фото — миниатюрой прямо в карточке (28.10), раньше только значок 📷. Нажатие — полный размер. */
+  .отчёт .фото { flex:none; width:64px; height:64px; border-radius:8px; overflow:hidden; background:var(--b); display:block }
+  .отчёт .фото img { width:100%; height:100%; object-fit:cover; display:block }
+  .отчёт .файл { color:var(--acc); text-decoration:none; font-weight:600 }
+  a.фото.нет { opacity:.35 }
+  /* Фото во весь экран (29.10): нажатие на миниатюру, нажатие куда угодно — закрыть. */
+  .фотоОкно { padding:0; border:0; background:#000; max-width:100vw; max-height:100vh; width:100vw; height:100vh; margin:0 }
+  .фотоОкно[open] { display:grid; place-items:center }
+  .фотоОкно img { max-width:100vw; max-height:100vh; object-fit:contain }
+  .фотоОкно::backdrop { background:#000 }
+  .главная { display:block; width:100%; margin-top:7px; min-height:38px; border-radius:10px;
+             border:1px solid var(--ok); background:var(--ok-фон); color:var(--ok);
+             font:inherit; font-size:15px; font-weight:600; cursor:pointer }
+  .главная.синяя { border-color:var(--acc); background:var(--acc-фон); color:var(--acc) }
+
+  /* Выбор пальцем: кружки людей и плитки-варианты вместо выпадающих списков. */
+  .подпись { font-size:13px; color:var(--m); margin:16px 0 7px; font-weight:600 }
+  .люди { display:flex; gap:10px; overflow-x:auto; padding-bottom:4px }
+  .чел { border:0; background:none; padding:0; cursor:pointer; display:flex; flex-direction:column;
+         align-items:center; gap:4px; font:inherit; font-size:12px; color:var(--m); flex:none; width:60px }
+  .чел .кто { width:46px; height:46px; font-size:19px; margin:0; vertical-align:0; opacity:.45;
+              border:3px solid transparent }
+  .чел { width:auto; min-width:58px; padding:0 3px; white-space:nowrap }
+  .чел .кто.все { background:var(--m) }
+  .чел.on { color:var(--t); font-weight:600 }
+  .чел.on .кто { opacity:1; border-color:var(--acc) }
+  /* Фильтр по людям — пилюли с переносом строки (25.10). */
+  .фряд { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px }
+  .фчел { display:inline-flex; align-items:center; gap:5px; padding:3px 9px 3px 3px; border:1px solid var(--b);
+          border-radius:99px; background:var(--card); color:var(--t); font:inherit; font-size:14px; cursor:pointer }
+  .фчел .кто { width:24px; height:24px; font-size:12px; margin:0; vertical-align:0 }
+  .фчел .кто.все { background:var(--m) }
+  .фчел b { color:var(--m); font-weight:600 }
+  .фчел.on { border-color:var(--acc); background:var(--acc-фон); color:var(--acc); font-weight:600 }
+  .фчел.on b { color:var(--acc) }
+  /* «Скоро»: день — строка-кнопка; свёрнутый показывает, у кого сколько. */
+  .деньк { display:flex; align-items:center; gap:8px; width:100%; margin:10px 0 6px; padding:8px 10px;
+           border:1px solid var(--b); border-radius:10px; background:var(--card); color:var(--t);
+           font:inherit; font-size:15px; font-weight:700; text-align:left; cursor:pointer }
+  .деньк .кто { width:20px; height:20px; font-size:11px; vertical-align:middle; margin-right:2px }
+  .деньк .кто-n { font-size:14px; font-weight:600; color:var(--m); margin-right:8px; vertical-align:middle }
+  .деньк .люди-дня { flex:1; text-align:right; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .деньк.открыт { background:transparent; border-color:transparent; padding-left:2px }
+  /* Выходные в «Скоро» — приглушённо (28.10). */
+  .деньк.вых { color:var(--m); background:var(--bg) }
+  .деньк.вых.открыт { background:transparent }
+  /* Поиск в «Задачах» (28.10: 54 задачи — 5,5 экрана прокрутки, искать было нечем). */
+  .поиск { width:100%; font:inherit; font-size:16px; padding:10px 12px; margin-bottom:8px; border:1px solid var(--b);
+           border-radius:11px; background:var(--card); color:var(--t) }
+  .выбор { display:flex; gap:8px; flex-wrap:wrap }
+  /* Фильтры «Задач» — поменьше: три ряда больших кнопок занимали пол-экрана. */
+  .выбор.мал { gap:6px }
+  .выбор.мал .вар { min-height:34px; padding:5px 11px; font-size:14px; border-radius:99px }
+  .вар { border:1px solid var(--b); background:var(--card); color:var(--t); border-radius:12px;
+         padding:10px 13px; min-height:46px; font:inherit; font-size:15px; cursor:pointer }
+  .вар.on { border-color:var(--acc); background:var(--acc-фон); color:var(--acc); font-weight:600 }
+  .сетка { display:grid; grid-template-columns:repeat(8,1fr); gap:6px }
+  .сетка .вар { padding:0; min-height:40px; font-size:14px; text-align:center }
+  .поле { width:100%; font:inherit; font-size:17px; padding:12px 13px; border:1px solid var(--b);
+          border-radius:12px; background:var(--card); color:var(--t) }
+  textarea.поле { font-size:16px }
+  .создать { width:100%; min-height:54px; margin-top:18px; border-radius:13px; border:0;
+             background:var(--acc); color:#fff; font:inherit; font-size:18px; font-weight:600; cursor:pointer }
+  .создать[disabled] { opacity:.45 }
+  .готово { background:var(--ok-фон); color:var(--ok); border:1px solid var(--ok); border-radius:12px;
+            padding:12px 14px; margin-bottom:14px; font-size:15px }
+  .фильтры { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px }
+  select, .кнопка { font:inherit; font-size:15px; padding:9px 12px; min-height:44px;
+                    border:1px solid var(--b); border-radius:11px; background:var(--card);
+                    color:var(--t); cursor:pointer }
+  .кнопка.главный { border-color:var(--acc); color:var(--acc); background:var(--acc-фон);
+                    font-weight:600; text-decoration:none; display:inline-flex; align-items:center }
+  .пусто { color:var(--m); padding:26px; text-align:center }
+  .плохо { color:var(--bad); padding:14px; background:var(--bad-фон); border-radius:12px }
+
+  dialog { border:1px solid var(--b); border-radius:16px; padding:16px; width:min(560px,94vw);
+           background:var(--card); color:var(--t) }
+  dialog::backdrop { background:rgba(0,0,0,.45) }
+  dialog .заголовок { font-size:17px; font-weight:600; white-space:pre-line; margin-bottom:6px }
+  dialog label { display:block; font-size:13px; color:var(--m); margin-top:12px }
+  dialog input, dialog select, dialog textarea { width:100%; font:inherit; font-size:16px;
+    padding:10px 11px; border:1px solid var(--b); border-radius:10px; background:var(--bg); color:var(--t) }
+  /* Редактор задачи разделами (28.10): «Что · Кому · Когда · Отчёт», редкое — свёрнуто в «Ещё». */
+  dialog .раздел { border-top:1px solid var(--b); padding-top:4px; margin-top:14px }
+  dialog .раздел > .подпись, dialog details > summary { margin:8px 0 4px; font-size:12px; text-transform:uppercase; letter-spacing:.04em }
+  dialog .раздел .подпись { margin:10px 0 4px }
+  dialog details > summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; color:var(--m); font-weight:600 }
+  dialog details > summary::after { content:'▸'; font-size:14px; text-transform:none }
+  dialog details[open] > summary::after { content:'▾' }
+  dialog details > summary::-webkit-details-marker { display:none }
+  dialog .пред { font-size:13px; color:var(--acc); background:var(--acc-фон); border-radius:9px; padding:7px 10px; margin-top:8px; line-height:1.35 }
+  dialog .заголовок-ряд { display:flex; justify-content:space-between; align-items:center; gap:8px }
+  dialog .заголовок-ряд .заголовок { margin:0; opacity:.7; font-size:14px }
+  dialog .тумблер { display:flex; gap:6px }
+  dialog .тумблер .вар { min-height:34px; padding:5px 12px; font-size:14px; border-radius:99px }
+  dialog .тумблер .вар.on.нет { border-color:var(--bad); background:var(--bad-фон); color:var(--bad) }
+  dialog label.скрыто, dialog .скрыто { display:none }
+  .меню { display:flex; flex-direction:column; gap:8px; margin-top:12px }
+  .меню button { width:100%; min-height:48px; font-size:16px; text-align:left; padding:0 14px;
+                 border:1px solid var(--b); border-radius:11px; background:var(--bg); color:var(--t);
+                 font-family:inherit; cursor:pointer }
+  .меню button.опасно { color:var(--bad); border-color:var(--bad) }
+  .низ { display:flex; gap:8px; justify-content:flex-end; margin-top:14px }
+  .низ button { font:inherit; font-size:16px; min-height:46px; padding:0 18px; border-radius:11px;
+                border:1px solid var(--b); background:var(--bg); color:var(--t); cursor:pointer }
+  .низ button.да { border-color:var(--acc); background:var(--acc); color:#fff; font-weight:600 }
+.галерея { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 6px 0 12px; }
+.влож { display: flex; flex-direction: column; gap: 4px; }
+.влож img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--линия, #ddd); }
+.влож .файл { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: 10px;
+  background: var(--карточка, #fff); border: 1px solid var(--линия, #ddd); font-size: 13px; text-align: center; padding: 6px; word-break: break-word; text-decoration: none; color: inherit; }
+.влож .снять { font-size: 12px; padding: 4px; border-radius: 8px; border: 1px solid var(--линия, #ddd); background: transparent; color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <div class="tabs" id="tabs">
+    <button data-t="дела" class="on"><b>📋</b>Дела</button><button data-t="скоро"><b>🗓</b>Скоро</button>
+    <button data-t="задачи"><b>🗂</b>Задачи</button><button data-t="я"><b>🙋</b>Я</button><button data-t="новая"><b>➕</b>Новая</button>
+    <button class="обн" id="кОбновить" type="button" title="Обновить"><b>⟳</b><span id="тОбновлено">—</span></button>
+  </div>
+</header>
+<div id="состояние" class="состояние" hidden></div>
+<main id="main"><div class="пусто">Загружаю…</div></main>
+<dialog id="dlg"></dialog>
+<script>
+const { DateTime } = luxon;
+const TZ = 'Europe/Moscow';
+const ПАРАМЫ = new URLSearchParams(location.search);
+const KEY = ПАРАМЫ.get('key') || '';
+// Где страница и как ходит к серверу (29.10, «админка без VPN»). 'n8n' — страницу отдал сам n8n, как было.
+// 'pages' — страница с GitHub Pages (ilnur849/pokupki/admin.html, build_admin.py --pages): данные тянет
+// напрямую с n8n, а когда тот не виден (без VPN запрос просто висит) — через Google-скрипт «📱 Помощник:
+// пересылка», тот же, что у приложения; удачный обход помнится 10 минут. Код планировщика, люди и колонки
+// на Pages не вшиты (репозиторий открытый) — приходят с сервера (/admin/code) и лежат в localStorage до
+// смены версии (`версияКода` в ответах /admin/all и /admin/snap).
+const РЕЖИМ = 'pages';
+const ПЕРЕСЫЛКА = "https://script.google.com/macros/s/AKfycbxhCXn9NroDee32MMdNdzI-vtUGr3SaFsTcKiIx-Kga4lVbruMfjgQM_YAw0NxY-raU/exec";
+const N8N = "https://n8n.ilnur849.ru";
+const BASE = РЕЖИМ === 'pages' ? N8N + '/webhook' : location.pathname.replace(/\/admin.*$/, '');
+const память = {
+  взять: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  положить: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+const ЗАКРЫТЫ = ['Выполнена', 'Принято', 'Отменена', 'Не выполнена'];
+const s = (v) => String(v === undefined || v === null ? '' : v).trim();
+const э = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// ?t=вкладка открывает нужную вкладку, ?id=… — сразу редактор этой задачи
+// (так «✏️ Поправить» на голосовой карточке ведёт к черновику, а не на пустые «Дела»).
+// Пока таблицы не загружены — пустые списки: вкладке «Новая» хватает людей и
+// колонок, вшитых при сборке (build_admin.py), и она рисуется сразу.
+let ЛЮДИ0 = /*PEOPLE*/[]/*/PEOPLE*/;
+let КОЛОНКИ0 = /*COLUMNS*/[]/*/COLUMNS*/;
+let ПЛАНИРОВЩИК = '';
+let ВЕРСИЯ_КОДА = '';
+function применитьКод(к) {
+  if (!к || !к.планировщик) return false;
+  ПЛАНИРОВЩИК = к.планировщик; ЛЮДИ0 = к.люди || []; КОЛОНКИ0 = к.колонки || []; ВЕРСИЯ_КОДА = к.версия || '';
+  return true;
+}
+if (РЕЖИМ === 'pages') { try { применитьКод(JSON.parse(память.взять('admin.код') || 'null')); } catch (e) {} }
+let кодИдёт = null;
+// версия — какая у сервера (из /admin/all или снимка); пустая — просто ещё нет кода.
+function кодССервера(версия) {
+  if (РЕЖИМ !== 'pages' || (ПЛАНИРОВЩИК && (!версия || версия === ВЕРСИЯ_КОДА))) return Promise.resolve();
+  if (!кодИдёт) кодИдёт = (async () => {
+    try { const к = await запрос('code'); if (применитьКод(к)) { память.положить('admin.код', JSON.stringify(к)); if (D.загружено && вкладка !== 'новая') render(); } }
+    catch (e) { /* без кода «Скоро» пусто, остальное работает */ }
+    finally { кодИдёт = null; }
+  })();
+  return кодИдёт;
+}
+let D = { вложения: [], задачи: [], сотрудники: ЛЮДИ0.map((имя) => ({ 'Имя': имя, 'Активен': 'да' })),
+          график: [], журнал: [], сейчас: '', загружено: false }, плитка = 'сегодня';
+let вкладка = ['дела', 'скоро', 'задачи', 'я', 'новая'].includes(ПАРАМЫ.get('t')) ? ПАРАМЫ.get('t') : 'дела';
+const ОТКРЫТЬ_ID = ПАРАМЫ.get('id') || '';
+if (ОТКРЫТЬ_ID) вкладка = 'задачи';
+// Что предлагаем вместо «чем отвечать»: значок, подпись и то, что ляжет в лист.
+const ШАБЛОНЫ = {
+  'просто': { зн: '✅', п: 'Просто сделать', ответ: 'нет', выполнение: '' },
+  'фото':   { зн: '📷', п: 'Фото',   ответ: 'фото',  выполнение: 'Прислано фото' },
+  'текст':  { зн: '✍️', п: 'Текст',  ответ: 'текст', выполнение: 'Написано, как есть' },
+  'число':  { зн: '💰', п: 'Сумма',  ответ: 'число', выполнение: 'Оплачено, в ответ — сумма' },
+  'касса':  { зн: '📝', п: 'Касса',  ответ: 'форма', варианты: 'kassa',
+              выполнение: 'Заполнена форма: касса, по учёту и по факту' },
+};
+const КОГДА = [['завтра', 'Завтра'], ['сегодня', 'Сегодня'], ['дата', 'Дата'],
+               ['каждый', 'Каждый день'], ['недели', 'Дни недели'], ['числа', 'Числа месяца']];
+const ДНИ = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+const ЧАСТЫЕ = ['09:00', '12:00', '15:00', '18:00'];
+const ПУСТАЯ = () => ({ что: '', кому: 'Ильнур', шаблон: 'просто', когда: 'завтра', дата: '',
+  дни: [], числа: [], время: '09:00', выполнение: '', часов: '', смена: '', сразу: false,
+  календарь: false, вложение: false, файлы: [], толькоФайл: false, ещё: false, сказать: '' });
+let Н = ПУСТАЯ();
+// Черновик голосовой задачи выключен — с фильтром «Включённые» его бы не было видно.
+// Фильтры общие для «Дел», «Скоро» и «Задач» и помнятся между открытиями
+// (Ильнур, 27.09). Открыли по ссылке на задачу — показываем и выключенные.
+let фКому = '', фТип = '', фАктивна = ОТКРЫТЬ_ID ? '' : 'да';
+// Память — в облаке Telegram (CloudStorage): страницу n8n отдаёт в
+// песочнице без allow-same-origin, и localStorage в ней недоступен (свой
+// заголовок CSP n8n перекрывает своим). Вне Telegram — localStorage, если есть.
+function применитьФильтры(текст) {
+  try { const ф = JSON.parse(текст || '{}');
+    if (typeof ф.фКому === 'string') фКому = ф.фКому;
+    if (['', 'разовая', 'повтор'].includes(ф.фТип)) фТип = ф.фТип;
+    if (!ОТКРЫТЬ_ID && ['', 'да', 'пауза', 'архив'].includes(ф.фАктивна)) фАктивна = ф.фАктивна; } catch (e) {}
+}
+const облако = () => { try { const T = tg(); return T && T.CloudStorage && T.isVersionAtLeast('6.9') ? T.CloudStorage : null; } catch (e) { return null; } };
+try { применитьФильтры(localStorage.getItem('admin.фильтры')); } catch (e) {}
+window.addEventListener('load', () => {
+  const c = облако(); if (!c) return;
+  try { c.getItem('фильтры', (ош, v) => { if (ош || !v) return; применитьФильтры(v); if (D.загружено && вкладка !== 'новая') render(); }); } catch (e) {}
+});
+function фильтр(имя, значение) {
+  if (имя === 'фКому') фКому = значение; else if (имя === 'фТип') фТип = значение; else фАктивна = значение;
+  const v = JSON.stringify({ фКому, фТип, фАктивна });
+  try { localStorage.setItem('admin.фильтры', v); } catch (e) {}
+  const c = облако(); if (c) try { c.setItem('фильтры', v, () => {}); } catch (e) {}
+  render();
+}
+// Ряд людей, как на «Новой»: кружок, имя и число — сколько у человека в
+// текущем списке. Тап — выбрать, тап по выбранному — сброс.
+// 25.10: в один ряд не влезали Марсель, Айдар и Рашид — уходили за правый край, а что ряд
+// листается, не видно. Теперь пилюли переносятся на вторую строку, а у кого здесь ноль — не
+// показываем (кроме выбранного: его надо видеть, чтобы снять фильтр).
+function рядЛюдей(счёт) {
+  const люди = D.сотрудники.filter((p) => s(p['Активен']).toLowerCase() === 'да').map((p) => s(p['Имя']));
+  for (const к of Object.keys(счёт)) if (к && !люди.includes(к)) люди.push(к);
+  const всего = Object.values(счёт).reduce((a, b) => a + b, 0);
+  const видно = люди.filter((л) => (счёт[л] || 0) > 0 || л === фКому);
+  const чип = (имя, подпись, n) => `<button class="фчел ${фКому === имя ? 'on' : ''}" onclick="фильтр('фКому', фКому === '${э(имя)}' ? '' : '${э(имя)}')">${имя ? аватар(имя) : '<span class="кто все">∗</span>'}<span>${э(подпись)}</span><b>${n}</b></button>`;
+  return `<div class="фряд">${чип('', 'Все', всего)}${видно.map((л) => чип(л, л, счёт[л] || 0)).join('')}</div>`;
+}
+const поЛюдям = (список, кто) => { const с = {}; for (const x of список) { const и = кто(x); с[и] = (с[и] || 0) + 1; } return с; };
+// Состояние задачи для списка «Задач» (Ильнур, 27.09): «включена» — идёт по
+// расписанию; «черновик» — голосовая (V-…), ждёт «Поставить»; «пауза» —
+// (имя «состояние» занято строкой статуса внизу экрана — не путать)
+// повторяющаяся, выключенная руками; «архив» — разовая, сделанная или снятая
+// (через 14 дней воскресный планировщик переносит её в лист «Архив задач»).
+function состояниеЗадачи(z) {
+  if (s(z['Активна']).toLowerCase() === 'да') return 'включена';
+  if (/^V-/.test(s(z['ID']))) return 'черновик';
+  return s(z['Тип повторения']).toLowerCase() === 'разовая' ? 'архив' : 'пауза';
+}
+function итогЗадачи(z) {
+  const зап = D.журнал.filter((r) => s(r['ID задачи']) === s(z['ID']));
+  const дата = (r) => (s(r['Дата приёмки']) || s(r['Дата отчёта']) || s(r['Перенесена на']) || s(r['Плановая дата'])).slice(0, 10);
+  const последняя = зап.map(дата).filter(Boolean).sort().pop() || '';
+  const когда = последняя ? ' ' + дд(последняя) : '';
+  if (зап.some((r) => ['Принято', 'Выполнена'].includes(s(r['Статус'])))) return '✅ сделана' + когда;
+  if (зап.some((r) => s(r['Статус']) === 'Отменена')) return '✖ снята' + когда;
+  if (зап.some((r) => s(r['Статус']) === 'Не выполнена')) return '⛔ не выполнена' + когда;
+  return 'выключена';
+}
+function открытьВкладку(имя) {
+  вкладка = имя;
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === имя));
+  render(); window.scrollTo(0, 0);
+}
+
+// Тему берём у Telegram, а вне его — у телефона.
+const tg = () => window.Telegram && window.Telegram.WebApp;
+const вTelegram = () => !!(tg() && tg().initData);
+function тема() {
+  const T = tg();
+  if (T && T.colorScheme) document.documentElement.setAttribute('data-theme', T.colorScheme);
+}
+window.addEventListener('load', () => {
+  const T = tg();
+  if (!T) return;
+  try { T.ready(); T.expand(); тема(); T.onEvent('themeChanged', тема); } catch (e) {}
+});
+
+// ── Дорога к серверу. Напрямую — как раньше; на Pages без VPN — через Google (см. РЕЖИМ выше). ──
+class СетьНет extends Error {}            // до сервера не достучались (не «сервер ответил ошибкой»)
+let прямоРаботало = false;
+const черезГугл = () => РЕЖИМ === 'pages' && !!ПЕРЕСЫЛКА && Number(память.взять('admin.гугл-до') || 0) > Date.now();
+const запомнитьГугл = (да) => память.положить('admin.гугл-до', да ? String(Date.now() + 10 * 60 * 1000) : '0');
+const сигнал = (мс) => (AbortSignal.timeout ? AbortSignal.timeout(мс) : undefined);
+async function fetchСеть(url, opts) {
+  try { return await fetch(url, opts); }
+  catch (e) { throw new СетьНет(e && e.name === 'TimeoutError' ? 'сервер не отвечает' : 'нет связи с сервером'); }
+}
+// прямо(мс) — запрос к n8n с таким ожиданием; гугл() — тот же запрос через пересылку. Первый прямой на Pages
+// ждёт 4,5 с (без VPN он висит), дальше — долго: запись в таблицу с повторами может идти минуту.
+async function маршрут(прямо, гугл) {
+  if (РЕЖИМ !== 'pages' || !ПЕРЕСЫЛКА) return прямо(90000);
+  if (черезГугл()) {
+    try { return await гугл(); }
+    catch (e) { if (!(e instanceof СетьНет)) throw e; запомнитьГугл(false); return прямо(8000); }   // Google тоже не ответил — вдруг VPN включили
+  }
+  try { const r = await прямо(прямоРаботало ? 90000 : 4500); прямоРаботало = true; return r; }
+  catch (e) { if (!(e instanceof СетьНет)) throw e; запомнитьГугл(true); return гугл(); }
+}
+// bin — ждём файл, не JSON: напрямую отдаём blob-адрес, через Google — data:-адрес из base64.
+async function прямоЗапрос(п, q, body, bin, мс) {
+  const r = await fetchСеть(`${BASE}/admin/${п}?key=${encodeURIComponent(KEY)}${q ? '&' + q : ''}`, body
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: сигнал(мс) } : { signal: сигнал(мс) });
+  if (!r.ok) throw new Error(`${п}: ${r.status}`);
+  if (bin) return URL.createObjectURL(await r.blob());
+  // Пустой ответ — workflow упал до ноды ответа (обычно Google: «too many
+  // requests» при быстрых нажатиях подряд). Говорим по-русски, не «Unexpected end of JSON».
+  const текст = await r.text();
+  if (!текст.trim()) throw new Error('таблица не ответила (перегружена) — подождите минуту и повторите');
+  return JSON.parse(текст);
+}
+// POST без своих заголовков (text/plain): так браузер не шлёт предварительный OPTIONS, которого Google не понимает.
+async function гуглЗапрос(п, q, body, bin) {
+  const r = await fetchСеть(`${ПЕРЕСЫЛКА}?p=${encodeURIComponent('admin/' + п)}&key=${encodeURIComponent(KEY)}${q ? '&' + q : ''}${bin ? '&b64=1' : ''}`,
+    { method: 'POST', body: JSON.stringify(body || {}), redirect: 'follow', signal: сигнал(90000) });
+  const текст = await r.text();
+  if (!текст.trim()) throw new СетьНет('Google не ответил');
+  let j; try { j = JSON.parse(текст); } catch (e) { throw new СетьНет('Google ответил не тем'); }
+  if (j.пересылка && j.связь === false) throw new СетьНет(j.ошибка || 'сервер не ответил и через Google');
+  if (j.пересылка && j.ошибка) throw new Error(j.ошибка);
+  if (bin) { if (!j.b64) throw new Error(j.ошибка || 'файл не пришёл'); return 'data:' + (j.тип || 'image/jpeg') + ';base64,' + j.b64; }
+  return j;
+}
+const запрос = (п, q, body, bin) => маршрут((мс) => прямоЗапрос(п, q, body, bin, мс), () => гуглЗапрос(п, q, body, bin));
+async function api(path, body) {
+  // path может нести свои параметры: «data?лист=Журнал».
+  const [п, q] = path.split('?');
+  return запрос(п, q, body);
+}
+// Сверка с таблицей после действий — одна на серию нажатий, а не после каждого:
+// каждая сверка — четыре чтения листов, и пять быстрых нажатий подряд
+// упирались в лимит Google (429), после чего падали и сами записи.
+let сверкаТаймер = null;
+function сверитьПозже() {
+  clearTimeout(сверкаТаймер);
+  состояние('сверюсь с таблицей через пару секунд…');
+  сверкаТаймер = setTimeout(async () => { состояние('сверяюсь с таблицей…'); await load(true); состояние(''); }, 4000);
+}
+function состояние(текст) {
+  const э_ = document.getElementById('состояние');
+  э_.textContent = текст; э_.hidden = !текст;
+}
+let открылиИзСсылки = false;
+// Свежие данные. С 25.10 — все пять листов одним запросом (/admin/all, один batchGet: ~1 с вместо
+// 3,5 с пятью). Запасной путь — по листу, как было до того.
+async function свежиеДанные() {
+  try {
+    const д = await api('all');
+    if (д.ошибка) throw new Error(д.ошибка);
+    if (!д.задачи || !д.журнал) throw new Error('листы не пришли');
+    return д;
+  } catch (e) {
+    const ЛИСТЫ_ДАННЫХ = { 'Задачи': 'задачи', 'Сотрудники': 'сотрудники', 'График смен': 'график', 'Журнал': 'журнал' };
+    // «Вложения» — необязательный лист: не пришёл — страница работает без фото.
+    const [части, вл] = await Promise.all([
+      Promise.all(Object.keys(ЛИСТЫ_ДАННЫХ).map((л) => api('data?лист=' + encodeURIComponent(л)))),
+      api('data?лист=' + encodeURIComponent('Вложения')).catch(() => ({ строки: [] }))]);
+    const d = { сейчас: '' };
+    for (const ч of части) { if (ч.ошибка) throw new Error(ч.ошибка); d[ЛИСТЫ_ДАННЫХ[ч.лист]] = ч.строки || []; d.сейчас = ч.сейчас || d.сейчас; }
+    for (const к of Object.values(ЛИСТЫ_ДАННЫХ)) if (!d[к]) throw new Error('лист не пришёл: ' + к);
+    d.вложения = (вл && вл.строки) || [];
+    return d;
+  }
+}
+// Снимок — прошлые данные с сервера, без Google: страница открывается сразу, свежие догоняют
+// (25.10, «быстрое открытие»). Пока на экране снимок, действия не нажимаются (см. ниже): правка
+// по старым данным записала бы старые значения поверх новых.
+const когдаСнимок = (сейчас) => { const с = s(сейчас); return с.slice(0, 10) === сегодня() ? с.slice(11, 16) : дд(с.slice(0, 10)) + ' ' + с.slice(11, 16); };
+async function снимок() {
+  try {
+    // На Pages есть свой прошлый ответ в localStorage — он без сети вовсе; серверный снимок — когда его нет.
+    let д = null;
+    if (РЕЖИМ === 'pages') { try { д = JSON.parse(память.взять('admin.снимок') || 'null'); } catch (e) { д = null; } }
+    if (!д || !д.задачи) д = await api('snap');
+    if (д.нет || D.загружено) return;            // свежие уже пришли — снимок не нужен
+    кодССервера(д.версияКода);
+    D = д; D.загружено = true; D.снимок = true;
+    if (вкладка !== 'новая') render();
+    состояние('данные на ' + когдаСнимок(д.сейчас) + ' · обновляю…');
+  } catch (e) { /* без снимка — просто ждём свежих */ }
+}
+async function load(тихо) {
+  try {
+    const d = await свежиеДанные();
+    // Снимок приходит, пока идут свежие: смотрим, что на экране, в момент их прихода.
+    const былСнимок = !!D.снимок;
+    D = d; D.загружено = true; D.снимок = false;
+    if (РЕЖИМ === 'pages') { память.положить('admin.снимок', JSON.stringify({ ...d, снимок: true })); кодССервера(d.версияКода); }
+    if (былСнимок) состояние('');
+    // «Новая» уже нарисована из вшитых данных; перерисовка сбила бы набранный текст и фокус.
+    if (вкладка !== 'новая' || !тихо) render();
+    if (ОТКРЫТЬ_ID && !открылиИзСсылки) { открылиИзСсылки = true; открытьЗадачу(ОТКРЫТЬ_ID); }
+  }
+  catch (e) {
+    // Тихая сверка не должна стирать то, что человек уже видит на экране; снимок — тоже.
+    if (D.снимок) return состояние('показаны данные на ' + когдаСнимок(D.сейчас) + ' — свежие не загрузились: ' + e.message);
+    if (тихо) return состояние((вкладка === 'новая' ? 'таблицы не загрузились, задачу создать можно: ' : 'не сверилось: ') + e.message);
+    document.getElementById('main').innerHTML =
+      `<div class="плохо">Не загрузилось: ${э(e.message)}</div>
+       <div class="фильтры" style="margin-top:12px"><button class="кнопка" onclick="load()">Ещё раз</button></div>`;
+  }
+}
+async function обновить() { состояние('обновляю…'); await load(true); состояние(''); }
+
+// ── Диалоги. В webview Telegram prompt/confirm/alert не работают. ──
+function спросить(заголовок, поля, кнопка = 'Ок') {
+  return new Promise((готово) => {
+    const d = document.getElementById('dlg');
+    d.innerHTML = `<form method="dialog"><div class="заголовок">${э(заголовок)}</div>`
+      + поля.map((f) => f.тип === 'textarea'
+          ? `<label>${э(f.подпись)}<textarea name="${f.имя}" rows="3">${э(f.значение || '')}</textarea></label>`
+          : `<label>${э(f.подпись)}<input name="${f.имя}" type="${f.тип === 'date' ? 'date' : 'text'}" value="${э(f.значение || '')}"></label>`).join('')
+      + `<div class="низ"><button value="cancel">Отмена</button><button class="да" value="ok">${э(кнопка)}</button></div></form>`;
+    // Меню «⋯» закрывается перед этим окном, а событие close приходит позже,
+    // когда окно уже открыто снова, — и раньше считалось отменой: из меню
+    // «Вернуть на доработку», «Принять», «Перенести», «Снять» молча ничего не
+    // делали (Ильнур 18.10: «вернул на доработку, а она не поменялась»).
+    // Чужое close узнаём по тому, что окно в этот момент открыто.
+    d.returnValue = '';
+    d.onclose = () => {
+      if (d.open) return;
+      if (d.returnValue !== 'ok') return готово(null);
+      const fd = new FormData(d.querySelector('form')); const о = {};
+      for (const f of поля) о[f.имя] = String(fd.get(f.имя) || '').trim();
+      готово(о);
+    };
+    d.showModal(); const п = d.querySelector('input,textarea'); if (п) п.focus();
+  });
+}
+const подтвердить = (текст) => спросить(текст, [], 'Да').then((о) => о !== null);
+function сказать(текст) {
+  const d = document.getElementById('dlg');
+  d.innerHTML = `<form method="dialog"><div class="заголовок">${э(текст)}</div>
+    <div class="низ"><button class="да" value="ok">Ок</button></div></form>`;
+  d.onclose = null; d.showModal();
+}
+/** Меню действий: главное на карточке, остальное здесь. */
+function менюДействий(заголовок, пункты) {
+  const d = document.getElementById('dlg');
+  d.innerHTML = `<div class="заголовок">${э(заголовок)}</div><div class="меню">`
+    + пункты.map((п, i) => `<button class="${п.опасно ? 'опасно' : ''}" data-i="${i}">${э(п.текст)}</button>`).join('')
+    + `</div><div class="низ"><button data-i="-1">Закрыть</button></div>`;
+  d.onclose = null;
+  d.onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    d.close(); d.onclick = null;
+    const п = пункты[+b.dataset.i]; if (п) п.что();
+  };
+  d.showModal();
+}
+
+// ── Действия ──
+function местнаяПравка(т) {
+  const ж = (ид) => D.журнал.find((r) => s(r['ID записи']) === ид);
+  const r = ж(т.id);
+  if (т.действие === 'статус' && r) {
+    r['Статус'] = т.статус;
+    if (т.комментарий) r['Мой комментарий'] = т.комментарий;
+    if (т.статус === 'Принято') {
+      r['Принято'] = 'да';
+      r['Дата приёмки'] = DateTime.now().setZone(TZ).toFormat('yyyy-MM-dd HH:mm');
+    }
+  }
+  if (т.действие === 'перенести' && r) { r['Статус'] = 'Ждёт смены'; r['Перенесена на'] = т.дата; if (т.дедлайн) r['Дедлайн (до)'] = т.дедлайн; }
+  if (т.действие === 'вернуть' && r) { r['Статус'] = 'Назначена'; r['Мой комментарий'] = т.комментарий; }
+  if (т.действие === 'задача') {
+    const z = D.задачи.find((x) => s(x['ID']) === т.id); if (z) Object.assign(z, т.поля);
+  }
+  if (т.действие === 'удалить') {
+    D.задачи = D.задачи.filter((x) => s(x['ID']) !== т.id);
+    for (const ид of т.закрыть || []) { const x = ж(ид); if (x) x['Статус'] = 'Отменена'; }
+  }
+}
+// Строка меняется у нас на глазах сразу, таблица сверяется потом, в фоне:
+// ждать девять секунд ради галочки — издевательство.
+async function act(body, подтверждение) {
+  if (подтверждение && !(await подтвердить(подтверждение))) return;
+  // Нода записи пишет все колонки разом — шлём текущие значения, чтобы
+  // действие не стирало то, чего не касается (комментарий, срок).
+  const r = D.журнал.find((x) => s(x['ID записи']) === s(body.id));
+  if (r && !body.текущее) body.текущее = Object.fromEntries(
+    ['Перенесена на', 'Дедлайн (до)', 'Принято', 'Дата приёмки', 'Мой комментарий'].map((k) => [k, s(r[k])]));
+  местнаяПравка(body); render(); состояние('сохраняю…');
+  try { const r = await api('act', body); if (r.ошибка) сказать(r.ошибка); }
+  catch (e) { сказать('Не получилось: ' + e.message + '\nНа экране правка есть, в таблице — нет: повторите позже.'); }
+  if (body.действие === 'статус' && ЗАКРЫТЫ.includes(body.статус) && r) await выключитьЕслиЗакрыта(s(r['ID задачи']));
+  сверитьПозже();
+}
+// Разовая, у которой закрыли последнюю карточку, — сразу «Активна: нет»,
+// не дожидаясь утреннего прохода планировщика: 27.09 Ильнур снял
+// «пенопласт» в «Делах», а в «Задачах» она осталась до утра.
+async function выключитьЕслиЗакрыта(идЗадачи) {
+  const z = D.задачи.find((x) => s(x['ID']) === идЗадачи);
+  if (!z || s(z['Тип повторения']).toLowerCase() !== 'разовая' || s(z['Активна']).toLowerCase() !== 'да') return;
+  const карточки = D.журнал.filter((x) => s(x['ID задачи']) === идЗадачи);
+  if (!карточки.length || !карточки.every((x) => ЗАКРЫТЫ.includes(s(x['Статус'])))) return;
+  z['Активна'] = 'нет'; render(); состояние('выключаю задачу…');
+  try { const о = await api('act', { действие: 'выключить', id: идЗадачи }); if (о.ошибка) сказать(о.ошибка); }
+  catch (e) { сказать('Карточка снята, а выключить задачу не вышло: ' + e.message); }
+}
+function сделал(id) { act({ действие: 'статус', id, статус: 'Принято' }); }
+async function принять(id) {
+  const о = await спросить('Принять работу', [{ имя: 'к', подпись: 'Комментарий (можно пусто)', тип: 'textarea' }], 'Принять');
+  if (!о) return; act({ действие: 'статус', id, статус: 'Принято', комментарий: о.к });
+}
+async function вернуть(id, кому, название) {
+  // Пустое «Что не так?» раньше молча ничего не делало: Ильнур 18.10 «вернул»
+  // задачу Азату, а она так и осталась «Выполнена». Теперь спрашиваем снова.
+  let заголовок = 'Вернуть — ' + кому + ' получит это в чат';
+  for (;;) {
+    const о = await спросить(заголовок, [{ имя: 'к', подпись: 'Что не так?', тип: 'textarea' }], 'Вернуть');
+    if (!о) return;
+    if (о.к) return act({ действие: 'вернуть', id, кому, название, комментарий: о.к });
+    заголовок = '⚠️ Напишите, что не так — без этого не возвращаю. ' + кому + ' получит это в чат';
+  }
+}
+async function перенести(id) {
+  const о = await спросить('Перенести', [{ имя: 'д', подпись: 'На какую дату', тип: 'date',
+    значение: DateTime.now().setZone(TZ).plus({ days: 1 }).toFormat('yyyy-MM-dd') }], 'Перенести');
+  if (!о || !/^\d{4}-\d{2}-\d{2}$/.test(о.д)) return;
+  // Новый срок: плановое время того дня плюс запас исходной карточки. Раньше
+  // срок не менялся, и карточка после переноса показывала «до 15.09» (22.09).
+  const r = D.журнал.find((x) => s(x['ID записи']) === id) || {};
+  const план = DateTime.fromFormat(s(r['Плановая дата']) + ' ' + (s(r['Плановое время']) || '09:00'), 'yyyy-MM-dd HH:mm', { zone: TZ });
+  const былСрок = DateTime.fromFormat(s(r['Дедлайн (до)']), 'yyyy-MM-dd HH:mm', { zone: TZ });
+  const запас = план.isValid && былСрок.isValid && былСрок > план ? былСрок.diff(план) : { hours: 8 };
+  const дедлайн = DateTime.fromFormat(о.д, 'yyyy-MM-dd', { zone: TZ })
+    .set({ hour: план.isValid ? план.hour : 9, minute: план.isValid ? план.minute : 0 }).plus(запас).toFormat('yyyy-MM-dd HH:mm');
+  act({ действие: 'перенести', id, дата: о.д, дедлайн });
+}
+function удалитьЗадачу(id, название) {
+  const открытые = D.журнал.filter((r) => s(r['ID задачи']) === id && !ЗАКРЫТЫ.includes(s(r['Статус'])));
+  act({ действие: 'удалить', id, закрыть: открытые.map((r) => s(r['ID записи'])) },
+      `Удалить задачу «${название}» насовсем?\n`
+      + (открытые.length ? `Незакрытых карточек: ${открытые.length} — будут сняты.\n` : '')
+      + 'Выполненное в журнале останется.');
+}
+// Нода записи пишет все колонки разом — шлём всю строку с правками.
+function правитьЗадачу(id, правки) {
+  const z = D.задачи.find((x) => s(x['ID']) === id); const поля = {};
+  for (const k of Object.keys(z)) if (k !== 'row_number') поля[k] = s(z[k]);
+  Object.assign(поля, правки);
+  // Включили разовую на сегодня или раньше — сервер тут же отдаст её
+  // планировщику: утренняя рассылка уже прошла, а «Действует по» = сегодня,
+  // и без этого задача тихо сгорала (28.09: голосовой черновик «поправили»
+  // в редакторе, «Поставить» под карточкой не нажали). Повтор не страшен —
+  // планировщик помнит журнал.
+  const включили = s(z['Активна']).toLowerCase() !== 'да' && s(поля['Активна']).toLowerCase() === 'да';
+  const дата = s(поля['Дата / точка отсчёта']);
+  const послать = включили && s(поля['Тип повторения']).toLowerCase() === 'разовая' && /^\d{4}-\d{2}-\d{2}$/.test(дата) && дата <= сегодня();
+  if (послать) сказать(`Задача включена и уходит ${э(s(поля['Исполнитель']))} прямо сейчас`);
+  act({ действие: 'задача', id, поля, послать });
+}
+
+// ── Мелочи отрисовки ──
+const сегодня = () => DateTime.now().setZone(TZ).toFormat('yyyy-MM-dd');
+const день = (r) => s(r['Перенесена на']) || s(r['Плановая дата']);
+const дд = (iso) => iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) : '';
+/** «2026-09-17 09:00» → «17.09 09:00». Резать строку по-своему уже пробовал —
+ *  получалось «09.17», месяц и день наоборот. */
+const срок = (v) => { const [д, в] = s(v).split(' '); return д ? дд(д) + (в ? ' ' + в : '') : ''; };
+const ЦВЕТА = ['#e0483e', '#2f81f7', '#17914a', '#c77700', '#8b5cf6', '#0e9aa7', '#d6336c'];
+function аватар(имя) {
+  let n = 0; for (const c of имя) n = (n * 31 + c.codePointAt(0)) % 997;
+  return `<span class="кто" style="background:${ЦВЕТА[n % ЦВЕТА.length]}">${э(имя.slice(0, 1).toUpperCase())}</span>`;
+}
+const класс = (ст) => 's-' + ст.split(' ')[0];
+function бейдж(ст) {
+  const c = ст === 'Принято' || ст === 'Выполнена' ? 'ok'
+    : ст === 'Назначена' ? 'acc'
+    : ст === 'Отменена' || ст === 'Не выполнена' || ст === 'Проблема' ? 'bad' : 'warn';
+  return `<span class="бейдж ${c}">${э(ст)}</span>`;
+}
+
+/** Карточка журнала: одно главное действие, остальное под «⋯». */
+function запись(r, о = {}) {
+  const ид = s(r['ID записи']); const ст = s(r['Статус']);
+  const открыта = !ЗАКРЫТЫ.includes(ст);
+  const название = s(r['Название']); const кому = s(r['Исполнитель']);
+  const отчёт = s(r['Текст отчёта']); const фото = s(r['Фото']);
+  const перенос = s(r['Перенесена на']), план = s(r['Плановая дата']), д = день(r), т = сегодня();
+  // На сколько дней просрочена (28.10): открытая карточка за прошлый день. Красная полоска и «⛔ N дн.».
+  const просрочка = открыта && д && д < т ? Math.max(1, Math.round(DateTime.fromISO(т).diff(DateTime.fromISO(д), 'days').days)) : 0;
+  const мета = [
+    о.день ? дд(д) : '',
+    // На сегодня важнее, во сколько дело пришло, чем срок (28.10); срок — следом.
+    !о.день && s(r['Плановое время']) ? 'в ' + s(r['Плановое время']) : '',
+    'до ' + срок(r['Дедлайн (до)']),
+    // «перенесена на 28.09» на карточке за 28.09 было шумом — говорим, откуда уехала.
+    перенос && план && план !== перенос ? 'перенесена с ' + дд(план) : '',
+    s(r['Дата отчёта']) ? 'отчёт ' + s(r['Дата отчёта']).slice(11) : '',
+  ].filter(Boolean).join(' · ');
+  // Своё Ильнур не принимает у самого себя: на открытой — «Сделал», и сразу «Принято».
+  const главная = кому === 'Ильнур'
+    ? (открыта || ст === 'Выполнена' ? `<button class="главная" onclick="сделал('${ид}')">✅ Сделал</button>` : '')
+    : ст === 'Выполнена'
+      ? `<button class="главная" onclick="принять('${ид}')">✅ Принять работу</button>` : '';
+  return `<div class="card ${класс(ст)}${просрочка ? ' проср' : ''}">
+    <div class="шапка"><div class="имя">${э(название)}</div>
+      <button class="ещё" onclick="действия('${ид}')">⋯</button></div>
+    <div class="мета">${просрочка ? `<span class="бейдж bad">⛔ ${просрочка} дн.</span>` : ''}${бейдж(ст)}${о.скем ? э(кому) + ' · ' : ''}${э(мета)}</div>
+    ${s(r['Мой комментарий']) ? `<div class="мета">💬 ${э(s(r['Мой комментарий']))}</div>` : ''}
+    ${отчёт || фото ? `<div class="отчёт">${фото && s(r['Вид файла']) !== 'файл' ? фотоHTML(фото, кому, 'фото отчёта') : ''}<span>${ст === 'Проблема' ? '⚠️ ' : ''}${э(отчёт)}${фото && s(r['Вид файла']) === 'файл'
+      ? `${отчёт ? '\n' : ''}${файлHTML(фото, кому, '📎 файл', 'файл')}` : ''}</span></div>` : ''}
+    ${главная}</div>`;
+}
+function действия(ид) {
+  const r = D.журнал.find((x) => s(x['ID записи']) === ид); if (!r) return;
+  const ст = s(r['Статус']); const название = s(r['Название']); const кому = s(r['Исполнитель']);
+  const п = [];
+  if (кому === 'Ильнур' && ст !== 'Принято') {
+    п.push({ текст: '✅ Сделал', что: () => сделал(ид) });
+  } else if (ст === 'Выполнена') {
+    п.push({ текст: '✅ Принять', что: () => принять(ид) });
+    п.push({ текст: '↩ Вернуть на доработку', что: () => вернуть(ид, кому, название) });
+  }
+  // «Проблема» — сотрудник написал, что мешает; напоминания по ней молчат,
+  // пока вы не ответите, не перенесёте или не снимете.
+  if (ст === 'Проблема') п.push({ текст: '↩ Ответить и вернуть в работу', что: () => вернуть(ид, кому, название) });
+  if (!ЗАКРЫТЫ.includes(ст)) {
+    п.push({ текст: '📅 Перенести на дату', что: () => перенести(ид) });
+    п.push({ текст: '⛔ Отметить невыполненной', что: () => act({ действие: 'статус', id: ид, статус: 'Не выполнена' }) });
+    п.push({ текст: '✖ Снять задачу', опасно: true, что: () => act({ действие: 'статус', id: ид, статус: 'Отменена' }, `Снять «${название}»?`) });
+  } else if (ст !== 'Выполнена') {
+    // Закрытая (в том числе «Принято»): раньше у принятой пунктов не было
+    // вовсе, и «⋯» открывал пустое окно с одним «Закрыть» (Ильнур, 27.09).
+    // У «Выполнена» уже есть «↩ Вернуть на доработку» — второй похожий пункт только путал (28.10).
+    п.push({ текст: '↺ Вернуть в работу', что: () => act({ действие: 'статус', id: ид, статус: 'Назначена' }) });
+  }
+  const идЗадачи = s(r['ID задачи']);
+  if (D.задачи.some((z) => s(z['ID']) === идЗадачи)) п.push({ текст: '🗂 Открыть задачу', что: () => открытьЗадачу(идЗадачи) });
+  менюДействий(название || '📎 файл без названия', п);
+}
+
+// ── Вкладки ──
+function группами(строки, о) {
+  if (!строки.length) return '<div class="пусто">Пусто</div>';
+  const по = {};
+  for (const r of строки) (по[s(r['Исполнитель'])] = по[s(r['Исполнитель'])] || []).push(r);
+  return Object.keys(по).sort().map((к) =>
+    `<h2>${аватар(к)}${э(к)} · ${по[к].length}</h2>` + по[к].map((r) => запись(r, о)).join('')).join('');
+}
+// Задачи дня, чья карточка ещё не ушла: со «Временем» позже (уходят своим тиком) или до утреннего
+// прогона. 25.10: Ильнур завёл в 07:02 два дела на 12:00 и не нашёл их ни в «Я», ни в «Делах» —
+// они жили только в планировщике, а «Скоро» начиналась с завтра.
+function ещёСегодня() {
+  return прогон(DateTime.now().setZone(TZ)).filter((x) => x._тип === 'задача' || x._тип === 'позже')
+    .sort((a, b) => (s(a['Плановое время']) || '99') < (s(b['Плановое время']) || '99') ? -1 : 1);
+}
+// Карточка задачи из планировщика (её ещё нет в «Журнале»): кому, во сколько придёт, срок, если есть.
+function плановая(j) {
+  const мета = [s(j['Плановое время']) ? 'придёт в ' + s(j['Плановое время']) : '',
+    s(j['Дедлайн (до)']) ? 'до ' + срок(j['Дедлайн (до)']) : '',
+    s(j['Перенесена на']) ? 'на ' + дд(s(j['Перенесена на'])) : ''].filter(Boolean).join(' · ');
+  return `<div class="card s-Назначена ждёт">
+    <div class="шапка"><div class="имя">${э(s(j['Название']) || '📎 файл без названия')}</div>
+      <button class="ещё" onclick="менюЗадачи('${э(j['ID задачи'])}')">⋯</button></div>
+    <div class="мета">${аватар(s(j['Исполнитель']))} ${э(s(j['Исполнитель']))}${мета ? ' · ' + э(мета) : ''}</div></div>`;
+}
+const ещёПридут = (список) => список.length
+  ? `<div class="подпись">⏳ Ещё придут сегодня · ${список.length}</div>` + список.map(плановая).join('') : '';
+function плиткиДел() {
+  const т = сегодня();
+  const дня = D.журнал.filter((r) => день(r) === т && s(r['Статус']) !== 'Отменена');
+  const позже = ещёСегодня();
+  const просрочено = D.журнал.filter((r) => !ЗАКРЫТЫ.includes(s(r['Статус'])) && день(r) && день(r) < т);
+  const приёмка = D.журнал.filter((r) => (s(r['Статус']) === 'Выполнена' || s(r['Статус']) === 'Проблема') && s(r['Исполнитель']) !== 'Ильнур');
+  const закрыто = дня.filter((r) => ['Выполнена', 'Принято'].includes(s(r['Статус']))).length;
+  return { дня, позже, просрочено, приёмка, шапка: `<div class="плитки">
+    <div class="плитка ${плитка === 'сегодня' ? 'on' : ''}" onclick="выбрать('сегодня')">
+      <div class="ц">${закрыто}/${дня.length + позже.length}</div><div class="п">сегодня</div></div>
+    <div class="плитка ${плитка === 'просрочено' ? 'on' : ''}${просрочено.length ? ' bad' : ''}" onclick="выбрать('просрочено')">
+      <div class="ц">${просрочено.length}</div><div class="п">просрочено</div></div>
+    <div class="плитка ${плитка === 'приёмка' ? 'on' : ''}${приёмка.length ? ' warn' : ''}" onclick="выбрать('приёмка')">
+      <div class="ц">${приёмка.length}</div><div class="п">на приёмку</div></div></div>` };
+}
+function выбрать(п) { плитка = п; render(); }
+function vДела() {
+  const { дня, позже: позжеВсе, просрочено, приёмка, шапка } = плиткиДел();
+  const все = плитка === 'сегодня' ? дня
+    : плитка === 'просрочено' ? просрочено.sort((a, b) => день(a) < день(b) ? -1 : 1) : приёмка;
+  const позже = плитка === 'сегодня' ? позжеВсе : [];
+  const мой = (r) => !фКому || s(r['Исполнитель']) === фКому;
+  const список = все.filter(мой), позжеМои = позже.filter(мой);
+  let out = шапка + рядЛюдей(поЛюдям(все.concat(позже), (r) => s(r['Исполнитель'])));
+  if (список.length) out += группами(список, { день: плитка !== 'сегодня' });
+  else if (!позжеМои.length) out += все.length || позже.length ? `<div class="мета">У ${э(фКому)} здесь ничего нет</div>` : '<div class="пусто">Пусто</div>';
+  return out + ещёПридут(позжеМои);
+}
+// Какие дни «Скоро» раскрыты: null — как по умолчанию (сегодня и завтра). Живёт до закрытия страницы.
+let открытыеДни = null;
+const деньОткрыт = (к, i) => (открытыеДни ? открытыеДни.has(к) : i < 2);
+function деньТумблер(к, i) {
+  if (!открытыеДни) {
+    открытыеДни = new Set();
+    for (let j = 0; j < 2; j++) открытыеДни.add(DateTime.now().setZone(TZ).plus({ days: j }).toFormat('yyyy-MM-dd'));
+  }
+  if (открытыеДни.has(к)) открытыеДни.delete(к); else открытыеДни.add(к);
+  render();
+}
+function vСкоро() {
+  // Сегодня — только то, что ещё не ушло; дальше 14 дней. «позже» — задачи дня со временем после 8:00
+  // (уходят своим тиком).
+  const дни = [{ д: DateTime.now().setZone(TZ), план: ещёСегодня(), сегодня: true }];
+  for (let i = 1; i <= 14; i++) {
+    const д = DateTime.now().setZone(TZ).plus({ days: i });
+    дни.push({ д, план: прогон(д).filter((x) => x._тип === 'задача' || x._тип === 'позже') });
+  }
+  let out = рядЛюдей(поЛюдям(дни.flatMap((x) => x.план), (j) => s(j['Исполнитель'])));
+  // Дни свёрнуты, кроме сегодня и завтра (25.10: 15 дней карточками — 23 экрана прокрутки); у
+  // свёрнутого видно, у кого сколько. Тап — раскрыть/свернуть.
+  дни.forEach(({ д, план: весь, сегодня: этоСегодня }, i) => {
+    const план = весь.filter((j) => !фКому || s(j['Исполнитель']) === фКому);
+    const к = д.toFormat('yyyy-MM-dd'), открыт = деньОткрыт(к, i), вых = д.weekday >= 6;
+    const кто = Object.entries(поЛюдям(план, (j) => s(j['Исполнитель'])))
+      .map(([и, n]) => `${аватар(и)}<span class="кто-n">${n}</span>`).join('');
+    out += `<button class="деньк ${открыт ? 'открыт' : ''}${вых ? ' вых' : ''}" onclick="деньТумблер('${к}', ${i})">
+      <span>${открыт ? '▾' : '▸'} ${этоСегодня ? 'Сегодня, ещё придут' : д.toFormat('dd.MM') + ' · ' + ['пн','вт','ср','чт','пт','сб','вс'][д.weekday - 1]} · ${план.length}</span>
+      ${открыт ? '' : `<span class="люди-дня">${кто}</span>`}</button>`;
+    if (!открыт) return;
+    if (!план.length) { out += '<div class="мета" style="margin:0 0 8px 4px">—</div>'; return; }
+    // Было «· до » с пустым сроком: у задач «позже» срока ещё нет — есть время, когда придут.
+    out += план.map(плановая).join('');
+  });
+  return out;
+}
+// Расписание словами (28.10: «пн · 09:00 · 8 ч · ответ: текст» читалось как шифр).
+function расписание(z) {
+  const тип = s(z['Тип повторения']).toLowerCase(), инт = s(z['Интервал']);
+  const числа = s(z['Числа месяца']).split(',').map((x) => x.trim()).filter(Boolean);
+  switch (тип) {
+    case 'разовая': return дд(s(z['Дата / точка отсчёта']));
+    case 'ежедневно': return 'каждый день';
+    // Пустое поле — «…»: в редакторе предпросмотр живой, и «по  в 09:00» читалось как поломка.
+    case 'дни недели': return 'по ' + (s(z['Дни недели']).split(',').map((x) => x.trim()).filter(Boolean).join(', ') || '…');
+    case 'числа месяца': return (числа.map((x) => x + '-го').join(', ') || '…') + ' числа';
+    case 'раз в n дней': return 'каждые ' + (инт || '…') + ' дн.';
+    case 'за n рабочих дней до числа': return (инт && инт !== '0' ? 'за ' + инт + ' раб. дн. до ' : 'в рабочий день ') + (числа.map((x) => x + '-го').join(', ') || '…');
+    case 'каждая n-я смена': return 'каждая ' + (инт || '…') + '-я смена';
+    case 'каждая смена': return 'каждую смену';
+    case 'день недели месяца': return (s(z['Позиция']) ? s(z['Позиция']).replace('-1', 'последний').replace(/^(\d)$/, '$1-й') + ' ' : '')
+      + s(z['Дни недели']).split(',').map((x) => x.trim()).filter(Boolean).join(', ') + ' месяца';
+    case 'смена месяца': return (s(z['Позиция']).replace('-1', 'последняя').replace(/^(\d)$/, '$1-я') || '—') + ' смена месяца';
+    default: return тип || '—';
+  }
+}
+const ОТВЕТ_СЛОВАМИ = { '': 'без отчёта', 'нет': 'без отчёта', 'фото': 'отчёт фото', 'текст': 'отчёт текстом', 'число': 'отчёт суммой',
+  'форма': 'отчёт формой', 'только файл': 'файл без карточки' };
+function метаЗадачи(z) {
+  const ч = s(z['Дедлайн (часов)']);
+  const вл = вложенияЗадачи(s(z['ID'])).length;
+  return [э(расписание(z)) + (s(z['Время']) ? ' в ' + э(s(z['Время'])) : ''), /^до/i.test(ч) ? 'срок ' + э(ч) : ч ? 'срок ' + э(ч) + ' ч' : '',
+    э(ОТВЕТ_СЛОВАМИ[s(z['Ответ']).toLowerCase()] || 'отчёт: ' + s(z['Ответ'])), э(переносЗадачи(z).replace(/^ → /, '')),
+    вл ? '📎 ' + вл : '', `<span style="opacity:.7">${э(s(z['ID']))}</span>`].filter(Boolean).join(' · ');
+}
+// Разовая, чью карточку перенесли: правило хранит старую дату, живёт запись
+// журнала — покажем, куда она уехала (22.09: «даты остались прежними»).
+// Активные вложения задачи (лист «Вложения», attachments/build_attachments.py).
+const вложенияЗадачи = (id) => (D.вложения || []).filter((r) => s(r['ID задачи']) === id && s(r['file_id'])
+  && s(r['Активно']).toLowerCase() !== 'нет');
+// «кто» — чей бот принял файл (28.10): отчётное фото сотрудника качает его бот, file_id чужому не отдаётся.
+const параметрыФайла = (fid, кто) => `id=${encodeURIComponent(fid)}${кто && кто !== 'Ильнур' ? '&кто=' + encodeURIComponent(кто) : ''}`;
+const адресФайла = (fid, кто) => `${BASE}/admin/file?key=${encodeURIComponent(KEY)}&${параметрыФайла(fid, кто)}`;
+// Картинка отчёта или вложения. В n8n-режиме — ссылка на файл напрямую; на Pages — грузится запросом
+// (напрямую или через Google как base64), до того — серый квадрат. Нажатие — во весь экран в <dialog>:
+// новая вкладка с картинкой из Custom Tab и из Telegram открывается плохо (29.10).
+const кэшФото = new Map();
+function фотоHTML(fid, кто, alt) {
+  const src = РЕЖИМ === 'pages' ? (кэшФото.get(fid) || '') : адресФайла(fid, кто);
+  return `<a class="фото" href="#" onclick="return показатьФото(this)" data-fid="${э(fid)}" data-кто="${э(кто || '')}"><img loading="lazy"${src ? ` src="${э(src)}"` : ''} alt="${alt}"></a>`;
+}
+function файлHTML(fid, кто, подпись, класс) {
+  return РЕЖИМ === 'pages'
+    ? `<a class="${класс}" href="#" onclick="return скачатьФайл(this)" data-fid="${э(fid)}" data-кто="${э(кто || '')}" data-имя="${э(подпись)}">${э(подпись)}</a>`
+    : `<a class="${класс}" href="${э(адресФайла(fid, кто))}" target="_blank">${э(подпись)}</a>`;
+}
+async function подгрузитьФото(корень) {
+  if (РЕЖИМ !== 'pages') return;
+  for (const a of (корень || document).querySelectorAll('a.фото[data-fid]')) {
+    const img = a.querySelector('img'); if (!img || img.getAttribute('src')) continue;
+    const fid = a.dataset.fid;
+    if (!кэшФото.has(fid)) {
+      try { кэшФото.set(fid, await запрос('file', параметрыФайла(fid, a.dataset.кто), null, true)); } catch (e) { кэшФото.set(fid, ''); }
+    }
+    if (кэшФото.get(fid)) img.src = кэшФото.get(fid); else a.classList.add('нет');
+  }
+}
+function показатьФото(a) {
+  const img = a.querySelector('img'); const src = img && img.getAttribute('src'); if (!src) return false;
+  let v = document.getElementById('фотоОкно');
+  if (!v) { v = document.createElement('dialog'); v.id = 'фотоОкно'; v.className = 'фотоОкно'; v.onclick = () => v.close(); document.body.appendChild(v); }
+  v.innerHTML = `<img src="${э(src)}" alt="">`; v.showModal(); return false;
+}
+async function скачатьФайл(a) {
+  const { fid, кто, имя } = a.dataset;
+  состояние('скачиваю файл…');
+  try {
+    const src = await запрос('file', параметрыФайла(fid, кто), null, true);
+    const l = document.createElement('a'); l.href = src; l.download = (имя || 'файл').replace(/^[📎📄]\s*/, ''); document.body.appendChild(l); l.click(); l.remove();
+  } catch (e) { сказать('Файл не скачался: ' + e.message); }
+  состояние(''); return false;
+}
+function галерея(id) {
+  const вл = вложенияЗадачи(id);
+  if (!вл.length) return s((D.задачи.find((x) => s(x['ID']) === id) || {})['Исполнитель']) === 'Ильнур'
+    ? '<div class="мета" style="margin:8px 0">📎 Вложений нет — «⋯ → 📎 Вложения» или фото боту</div>' : '';
+  return `<div class="подпись">📎 Вложения (${вл.length})</div><div class="галерея">` + вл.map((r) => {
+    const fid = s(r['file_id']), фото = s(r['Вид']) === 'фото';
+    return `<div class="влож">${фото ? фотоHTML(fid, '', 'фото') : файлHTML(fid, '', '📄 ' + (s(r['Имя']) || 'файл'), 'файл')}
+      <button type="button" class="снять" onclick="снятьВложение('${э(fid)}', this)">✖ убрать</button></div>`;
+  }).join('') + '</div>';
+}
+async function снятьВложение(fid, кнопка) {
+  // Окно редактора открыто в том же <dialog>, второй диалог его бы сломал —
+  // подтверждение вторым нажатием на ту же кнопку.
+  if (кнопка && !кнопка.dataset.точно) { кнопка.dataset.точно = '1'; кнопка.textContent = '✖ точно убрать?'; return; }
+  const r = D.вложения.find((x) => s(x['file_id']) === fid); if (r) r['Активно'] = 'нет';
+  const блок = кнопка && кнопка.closest('.влож'); if (блок) блок.remove();
+  состояние('сохраняю…');
+  try { const о = await api('act', { действие: 'снять вложение', file_id: fid }); if (о.ошибка) сказать(о.ошибка); }
+  catch (e) { сказать('Не получилось: ' + e.message); }
+  состояние('');
+}
+function переносЗадачи(z) {
+  const т = сегодня();
+  const п = D.журнал.filter((r) => s(r['ID задачи']) === s(z['ID']) && !ЗАКРЫТЫ.includes(s(r['Статус'])) && s(r['Перенесена на']) >= т)
+    .map((r) => s(r['Перенесена на'])).sort();
+  return п.length ? ' → перенесена на ' + дд(п[0]) : '';
+}
+// Поиск по названию и сворачиваемые группы по человеку (28.10: 54 включённых задачи — 5,5 экрана прокрутки).
+let фПоиск = '';
+const свёрнутыеЛюди = new Set();
+function задачиОтфильтрованные() {
+  // Тип — «разовые / повторяющиеся», не девять видов повторения (27.09).
+  const поТипу = (z) => !фТип || (фТип === 'разовая' ? s(z['Тип повторения']).toLowerCase() === 'разовая' : s(z['Тип повторения']).toLowerCase() !== 'разовая');
+  // «Включённые» показывают и черновики — иначе о наговоренной задаче забудут.
+  const поАктивности = (z) => фАктивна === '' || (фАктивна === 'да' ? ['включена', 'черновик'].includes(состояниеЗадачи(z)) : состояниеЗадачи(z) === фАктивна);
+  const безЛюдей = D.задачи.filter((z) => поТипу(z) && поАктивности(z));
+  const п = фПоиск.trim().toLowerCase();
+  const поПоиску = (z) => !п || (s(z['Название']) + ' ' + s(z['ID']) + ' ' + s(z['Что считать выполнением'])).toLowerCase().includes(п);
+  return { безЛюдей, ф: безЛюдей.filter((z) => (!фКому || s(z['Исполнитель']) === фКому) && поПоиску(z)) };
+}
+function карточкаЗадачи(z, сЧеловеком) {
+  const сост = состояниеЗадачи(z);
+  return `<div class="card ${сост === 'включена' ? 's-Назначена' : 'off'}">
+    <div class="шапка"><div class="имя">${сост === 'черновик' ? '<span class="бейдж warn" style="margin-right:6px">черновик</span>' : ''}${сост === 'архив' ? '<span class="бейдж ' + (итогЗадачи(z).startsWith('✅') ? 'ok' : 'bad') + '" style="margin-right:6px">' + э(итогЗадачи(z)) + '</span>' : ''}${э(s(z['Название']) || '📎 файл без названия')}</div>
+      <button class="ещё" onclick="менюЗадачи('${э(s(z['ID']))}')">⋯</button></div>
+    <div class="мета">${сЧеловеком ? аватар(s(z['Исполнитель'])) + ' ' + э(s(z['Исполнитель'])) + ' · ' : ''}${метаЗадачи(z)}</div></div>`;
+}
+function спискомЗадач(ф) {
+  if (!ф.length) return `<div class="пусто">Ничего не нашлось: ${э(фПоиск.trim() ? '«' + фПоиск.trim() + '» · ' : '')}${э(фКому || 'все')} · ${фТип === 'разовая' ? 'разовые' : фТип === 'повтор' ? 'повторяющиеся' : 'любой тип'} · ${фАктивна === 'да' ? 'включённые' : фАктивна === 'пауза' ? 'на паузе' : фАктивна === 'архив' ? 'в архиве' : 'все'}</div>`;
+  // Выбран человек или идёт поиск — просто список; иначе по людям, каждого можно свернуть (как дни в «Скоро»).
+  if (фКому || фПоиск.trim()) return ф.map((z) => карточкаЗадачи(z, !фКому)).join('');
+  const по = {};
+  for (const z of ф) (по[s(z['Исполнитель'])] = по[s(z['Исполнитель'])] || []).push(z);
+  return Object.keys(по).sort().map((к) => {
+    const св = свёрнутыеЛюди.has(к);
+    return `<button class="деньк ${св ? '' : 'открыт'}" onclick="людиТумблер('${э(к)}')"><span>${св ? '▸' : '▾'} ${аватар(к)}${э(к)} · ${по[к].length}</span></button>`
+      + (св ? '' : по[к].map((z) => карточкаЗадачи(z, false)).join(''));
+  }).join('');
+}
+function людиТумблер(к) { if (свёрнутыеЛюди.has(к)) свёрнутыеЛюди.delete(к); else свёрнутыеЛюди.add(к); render(); }
+// Набор в поиске перерисовывает только список — иначе поле теряло бы фокус на каждой букве.
+function поискЗадач(v) { фПоиск = v; const э_ = document.getElementById('списокЗадач'); if (э_) э_.innerHTML = спискомЗадач(задачиОтфильтрованные().ф); }
+function vЗадачи() {
+  const { безЛюдей, ф } = задачиОтфильтрованные();
+  const кн = (имя, значение, текущее, подпись) => `<button class="вар ${текущее === значение ? 'on' : ''}" onclick="фильтр('${имя}','${значение}')">${подпись}</button>`;
+  return рядЛюдей(поЛюдям(безЛюдей, (z) => s(z['Исполнитель'])))
+    + `<div class="выбор мал" style="margin-bottom:6px">${кн('фТип', '', фТип, 'Все')}${кн('фТип', 'разовая', фТип, 'Разовые')}${кн('фТип', 'повтор', фТип, 'Повторяющиеся')}</div>
+    <div class="выбор мал" style="margin-bottom:10px">${кн('фАктивна', 'да', фАктивна, 'Включённые')}${кн('фАктивна', 'пауза', фАктивна, 'Пауза')}${кн('фАктивна', 'архив', фАктивна, 'Архив')}
+      <button class="вар синяя" onclick="Н.кому = фКому || 'Ильнур'; открытьВкладку('новая')">＋ Новая</button></div>
+    <input class="поиск" type="search" placeholder="🔎 Поиск по названию" value="${э(фПоиск)}" oninput="поискЗадач(this.value)">
+    <div id="списокЗадач">${спискомЗадач(ф)}</div>`
+    + (фАктивна === 'архив' ? '<div class="мета" style="text-align:center">Через 14 дней после закрытия задача переезжает в лист «Архив задач» и отсюда пропадает</div>' : '');
+}
+function менюЗадачи(id) {
+  const z = D.задачи.find((x) => s(x['ID']) === id);
+  if (!z) return сказать('Нет такой задачи: ' + id);
+  const вкл = s(z['Активна']).toLowerCase() === 'да';
+  менюДействий(s(z['Название']), [
+    { текст: '✏️ Изменить', что: () => открытьЗадачу(id) },
+    { текст: '📄 Повторить — завести похожую', что: () => образец(id) },
+    { текст: '🚀 Послать сейчас', что: () => act({ действие: 'сейчас', ids: [id] }, `Послать «${s(z['Название'])}» сейчас?`) },
+    // Вложения пока только к своим задачам (25.09): их принимает и шлёт бот Ильнура.
+    ...(s(z['Исполнитель']) === 'Ильнур' ? [{ текст: '📎 Вложения — фото или PDF', что: async () => {
+      await act({ действие: 'вложение', id, название: s(z['Название']) });
+      сказать('📎 Бот прислал вам сообщение в чат — ответьте на него фото или PDF, можно несколько.');
+    } }] : []),
+    { текст: вкл ? '⏸ Выключить' : '▶ Включить', что: () => правитьЗадачу(id, { 'Активна': вкл ? 'нет' : 'да' }) },
+    { текст: '🗑 Удалить насовсем', опасно: true, что: () => удалитьЗадачу(id, s(z['Название'])) },
+  ]);
+}
+function vЯ() {
+  const т = сегодня();
+  const мои = D.журнал.filter((r) => s(r['Исполнитель']) === 'Ильнур');
+  const сег = мои.filter((r) => день(r) === т && s(r['Статус']) !== 'Отменена');
+  const позже = ещёСегодня().filter((j) => s(j['Исполнитель']) === 'Ильнур');
+  const хв = мои.filter((r) => !ЗАКРЫТЫ.includes(s(r['Статус'])) && день(r) && день(r) < т);
+  const сделано = сег.filter((r) => ['Выполнена', 'Принято'].includes(s(r['Статус']))).length;
+  return `<div class="плитки">
+      <div class="плитка"><div class="ц">${сделано}/${сег.length + позже.length}</div><div class="п">сегодня</div></div>
+      <div class="плитка"><div class="ц">${хв.length}</div><div class="п">хвосты</div></div></div>
+    <div class="фильтры"><button class="кнопка главный" onclick="Н = ПУСТАЯ(); открытьВкладку('новая')">＋ Задача себе</button></div>
+    <h2>Сегодня</h2>${сег.length ? сег.map((r) => запись(r)).join('') : позже.length ? '' : '<div class="пусто">Пусто</div>'}${ещёПридут(позже)}
+    <h2>Хвосты</h2>${хв.length ? хв.map((r) => запись(r, { день: true })).join('') : '<div class="пусто">Пусто</div>'}`;
+}
+
+// ── Новая задача ──
+// Строку для листа собирает страница, а не сервер: она же рисует предпросмотр,
+// и держать одну и ту же логику в двух местах — верный способ их развести.
+function строкаЗадачи() {
+  const ш = ШАБЛОНЫ[Н.шаблон] || ШАБЛОНЫ['просто'];
+  const сейчас = DateTime.now().setZone(TZ);
+  let тип = 'разовая', дата = '', дни = '', числа = '';
+  if (Н.когда === 'завтра') дата = сейчас.plus({ days: 1 }).toFormat('yyyy-MM-dd');
+  else if (Н.когда === 'сегодня') дата = сейчас.toFormat('yyyy-MM-dd');
+  else if (Н.когда === 'дата') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(Н.дата)) return { ошибка: 'Выберите дату' };
+    if (Н.дата < сейчас.toFormat('yyyy-MM-dd')) return { ошибка: 'Эта дата уже прошла' };
+    дата = Н.дата;
+  } else if (Н.когда === 'каждый') тип = 'ежедневно';
+  else if (Н.когда === 'недели') {
+    if (!Н.дни.length) return { ошибка: 'Отметьте дни недели' };
+    тип = 'дни недели'; дни = ДНИ.filter((д) => Н.дни.includes(д)).join(',');
+  } else {
+    if (!Н.числа.length) return { ошибка: 'Отметьте числа месяца' };
+    тип = 'числа месяца'; числа = Н.числа.join(',');
+  }
+  const сегодня_ = дата === сейчас.toFormat('yyyy-MM-dd');
+  // «Сегодня» до восьми утра дождётся обычной рассылки; позже — уходит сразу,
+  // иначе не ушла бы никогда.
+  const сразу = Н.сразу || (тип === 'разовая' && сегодня_ && сейчас.hour >= 8);
+  let время = Н.время || '09:00';
+  if (сразу && сегодня_ && время <= сейчас.toFormat('HH:mm')) время = сейчас.toFormat('HH:mm');
+  const часов = String(parseFloat(Н.часов) || 8);
+  // «Только файл»: фото/PDF без карточки и кнопок — свой вид ответа для планировщика.
+  const толькоФайл = !!Н.толькоФайл && Н.кому === 'Ильнур' && (Н.файлы || []).length > 0;
+  const ответ = толькоФайл ? 'только файл' : ш.ответ;
+  const колонки = D.задачи.length ? Object.keys(D.задачи[0]).filter((k) => k !== 'row_number') : КОЛОНКИ0;
+  // На Pages колонки приходят с сервера (/admin/code): пока их нет — строку не собрать.
+  if (!колонки.length) return { ошибка: 'Ещё загружаю настройки — секунду…' };
+  const строка = {};
+  for (const k of колонки) строка[k] = '';
+  Object.assign(строка, {
+    'ID': '', 'Активна': 'да', 'Название': Н.что.trim(),
+    'Что считать выполнением': Н.выполнение.trim() || ш.выполнение || '',
+    'Объект': '—', 'Исполнитель': Н.кому, 'Тип повторения': тип,
+    'Дни недели': дни, 'Числа месяца': числа, 'Дата / точка отсчёта': дата,
+    'Время': время, 'Дедлайн (часов)': часов,
+    'Нужно фото': ответ === 'фото' ? 'да' : 'нет', 'Ответ': ответ,
+    'Варианты': ответ === 'форма' ? (ш.варианты || '') : '',
+    'Требует приёмки': 'нет',
+    'Если не на смене': Н.смена || (Н.кому === 'Ильнур' ? 'слать всё равно' : ''),
+    'Если просрочена': 'следующая смена',
+    // Разовая, посланная раньше своего дня, в свой день не должна прийти второй раз.
+    'Действует по': сразу && тип === 'разовая' && !сегодня_ ? сейчас.toFormat('yyyy-MM-dd') : '',
+    'Комментарий': 'Заведена из админки ' + сейчас.toFormat('dd.MM.yyyy HH:mm'),
+  });
+  return { строка, сразу, ответ, время, часов, тип, дата, дни, числа, толькоФайл };
+}
+function когдаПридёт(с) {
+  if (с.сразу) return 'уходит сейчас';
+  if (с.тип === 'разовая') return дд(с.дата) + ' в 8:00';
+  if (с.тип === 'ежедневно') return 'каждый день в 8:00';
+  if (с.тип === 'дни недели') return 'по ' + с.дни + ' в 8:00';
+  return с.числа + '-го в 8:00';
+}
+function поле(что, значение) { Н[что] = значение; render(); }
+const когда = (к) => поле('когда', к);
+function переключить(что, значение) {
+  const н = Н[что];
+  Н[что] = н.includes(значение) ? н.filter((x) => x !== значение) : н.concat([значение]);
+  render();
+}
+function образец(id) {
+  const z = D.задачи.find((x) => s(x['ID']) === id); if (!z) return;
+  const тип = s(z['Тип повторения']);
+  const ответ = s(z['Ответ']) || 'нет';
+  const шаблон = Object.keys(ШАБЛОНЫ).find((k) => ШАБЛОНЫ[k].ответ === ответ) || 'просто';
+  Н = { ...ПУСТАЯ(), что: s(z['Название']), кому: s(z['Исполнитель']), шаблон,
+    когда: тип === 'ежедневно' ? 'каждый' : тип === 'дни недели' ? 'недели'
+         : тип === 'числа месяца' ? 'числа' : 'завтра',
+    дни: s(z['Дни недели']).split(',').map((x) => x.trim()).filter(Boolean),
+    числа: s(z['Числа месяца']).split(',').map((x) => x.trim()).filter(Boolean),
+    время: s(z['Время']) || '09:00', выполнение: s(z['Что считать выполнением']),
+    часов: s(z['Дедлайн (часов)']), смена: s(z['Если не на смене']), ещё: true,
+    сказать: 'Взято за образец: ' + s(z['ID']) };
+  вкладка = 'новая';
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === 'новая'));
+  render(); window.scrollTo(0, 0);
+}
+async function создать() {
+  const с = строкаЗадачи();
+  if (с.ошибка) return сказать(с.ошибка);
+  // Файлы, выбранные на странице, — только к своим задачам: file_id живёт у бота Ильнура.
+  const файлы = Н.кому === 'Ильнур' ? (Н.файлы || []) : [];
+  const спроситьВЧате = !!Н.вложение && Н.кому === 'Ильнур' && !файлы.length;
+  // Без названия — только с файлами: тогда придёт голая картинка, без подписи.
+  if (!Н.что.trim() && !спроситьВЧате && !файлы.length) return сказать('Напишите, что сделать');
+  const копия = { ...Н }, кому = Н.кому, придёт = когдаПридёт(с);
+  Н = { ...ПУСТАЯ(), сказать: `Готово: ${кому} — ${придёт}`
+    + (спроситьВЧате ? '\n📎 Бот прислал сообщение в чат — ответьте на него фото или PDF'
+      + (с.сразу ? ', затем нажмите там «🚀 Послать сейчас»' : '') : '') };
+  // Файлы — до создания задачи: ID берём у сервера, грузим файлы, потом одним
+  // запросом «новая» (+ «сразу» — рассылает сервер). Раньше страница звала
+  // «сейчас» после загрузки, а Telegram закрывал её, стоило выйти в чат
+  // посмотреть на файл, — задачи 26.09 так и не уходили.
+  render();
+  try {
+    if (файлы.length) {
+      // Один запрос на всё: файлы и задача вместе. Сервер шлёт файлы в чат за
+      // file_id, пишет «Вложения», заводит задачу и, если «сразу», рассылает.
+      // Любая цепочка из двух запросов здесь рвалась: файл мелькает в чате,
+      // Ильнур уходит смотреть, Telegram закрывает Mini App (26–27.09).
+      состояние(`отправляю ${файлы.length === 1 ? 'файл' : файлы.length + ' файла'} и задачу…`);
+      const j = await загрузить(файлы, { строка: с.строка, сразу: с.сразу,
+        календарь: !!копия.календарь && с.тип === 'разовая', файлы: файлы.length });
+      Н.сказать = `Готово: ${кому} — ${придёт}\n📎 Прикреплено: ${j.файлов || файлы.length}`;
+      render();
+    } else {
+      состояние('создаю…');
+      const r = await api('act', { действие: 'новая', задачи: [{ строка: с.строка, сразу: с.сразу,
+        // Н уже сброшен выше — флаги берём из копии (календарь раньше терялся, 26.09).
+        календарь: !!копия.календарь && с.тип === 'разовая',
+        вложение: спроситьВЧате }] });
+      if (r.ошибка) { Н = копия; render(); return сказать(r.ошибка); }
+    }
+  } catch (e) { Н = копия; render(); return сказать('Не получилось: ' + e.message); }
+  состояние('сверяюсь с таблицей…'); await load(true); состояние('');
+}
+async function загрузить(файлы, задача) {
+  const прямо = async (мс) => {
+    const fd = new FormData();
+    файлы.forEach((f, i) => fd.append('data' + i, f, f.name));
+    fd.append('задача', JSON.stringify(задача));
+    const r = await fetchСеть(`${BASE}/admin/upload?key=${encodeURIComponent(KEY)}`, { method: 'POST', body: fd, signal: сигнал(мс) });
+    if (!r.ok) throw new Error(r.status === 413 ? 'слишком большие файлы' : 'сервер ответил ' + r.status);
+    const т = await r.text(); if (!т.trim()) throw new Error('сервер не ответил');
+    return JSON.parse(т);
+  };
+  // Через Google — файлы base64 в JSON (двоичное тело Apps Script портит); multipart для n8n соберёт пересылка.
+  const гугл = async () => {
+    const вб64 = (f) => new Promise((ок, нет) => { const rd = new FileReader(); rd.onload = () => ок(String(rd.result).split(',')[1] || ''); rd.onerror = () => нет(new Error('файл не прочитался')); rd.readAsDataURL(f); });
+    const список = []; for (const f of файлы) список.push({ имя: f.name, тип: f.type || 'application/octet-stream', b64: await вб64(f) });
+    return гуглЗапрос('upload', '', { файлы: список, задача: JSON.stringify(задача) });
+  };
+  const j = await маршрут(прямо, гугл);
+  if (!j.ok) throw new Error(j.ошибка || 'не записалось');
+  return j;
+}
+function выбралиФайлы(вход) {
+  const новые = [...(вход.files || [])].filter((f) => /^image\//.test(f.type) || /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  if ((вход.files || []).length && !новые.length) сказать('Подходят фото и PDF');
+  Н.файлы = [...(Н.файлы || []), ...новые]; render();
+}
+function убратьФайл(i) { Н.файлы = (Н.файлы || []).filter((_, k) => k !== i); render(); }
+const мб = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ';
+function vНовая() {
+  Н.файлы = Н.файлы || []; // «взять за образец» собирает Н без этого поля
+  const люди = D.сотрудники.filter((p) => s(p['Активен']).toLowerCase() === 'да').map((p) => s(p['Имя']));
+  const с = строкаЗадачи();
+  const предпросмотр = с.ошибка ? `<div class="мета">${э(с.ошибка)}</div>` : (() => {
+    const подсказка = с.ответ === 'число' ? '\n✍️ В ответ — число'
+      : с.ответ === 'фото' ? '\n✍️ В ответ — фото или файл'
+      : с.ответ === 'текст' ? '\n✍️ В ответ — напишите, как есть'
+      : с.ответ === 'форма' ? '\n📝 Нажмите «Заполнить» — откроется форма' : '';
+    const кнопка = с.ответ === 'нет' ? '✅ Выполнено' : с.ответ === 'форма' ? '📝 Заполнить' : '✍️ Ответить';
+    if (с.толькоФайл) return `<div class="card s-Принято"><div class="имя">🖼 ${Н.файлы.map((f) => /^image\//.test(f.type) ? 'фото' : 'файл').join(', ')} без подписи</div>
+      <div class="мета">без карточки и кнопок${Н.что.trim() ? ' · название «' + э(Н.что.trim()) + '» — только для админки' : ''}</div></div>
+      <div class="мета">${аватар(Н.кому)} ${э(Н.кому)} — ${э(когдаПридёт(с))}</div>`;
+    return `<div class="card s-Назначена"><div class="имя">${э(Н.что.trim() || (Н.файлы.length ? '(без названия — только срок и кнопки)' : 'Что сделать…'))}</div>
+      <div class="мета">${э(с.время)} · ${э(с.часов)} ч рабочего времени${э(подсказка)}</div>
+      <div class="выбор" style="margin-top:9px"><span class="вар">${кнопка}</span><span class="вар">➡️ На завтра</span></div></div>
+      <div class="мета">${аватар(Н.кому)} ${э(Н.кому)} — ${э(когдаПридёт(с))}</div>`;
+  })();
+  return (Н.сказать ? `<div class="готово">${э(Н.сказать)}</div>` : '')
+    + `<input class="поле" id="что" placeholder="Что сделать?" value="${э(Н.что)}"
+         oninput="Н.что=this.value; обновитьПредпросмотр()">
+    <div class="подпись">Кому</div>
+    <div class="люди">${люди.map((л) => `<button class="чел ${л === Н.кому ? 'on' : ''}" onclick="поле('кому','${э(л)}')">${аватар(л)}${э(л)}</button>`).join('')}</div>
+    <div class="подпись">Чем отчитаться</div>
+    <div class="выбор">${Object.entries(ШАБЛОНЫ).map(([к, ш]) =>
+        `<button class="вар ${к === Н.шаблон ? 'on' : ''}" onclick="поле('шаблон','${к}')">${ш.зн} ${э(ш.п)}</button>`).join('')}</div>
+    <div class="подпись">Когда</div>
+    <div class="выбор">${КОГДА.map(([к, п]) => `<button class="вар ${к === Н.когда ? 'on' : ''}" onclick="когда('${к}')">${э(п)}</button>`).join('')}</div>
+    ${Н.когда === 'дата' ? `<input class="поле" style="margin-top:8px" type="date" value="${э(Н.дата)}" onchange="поле('дата',this.value)">` : ''}
+    ${Н.когда === 'недели' ? `<div class="выбор" style="margin-top:8px">${ДНИ.map((д) =>
+        `<button class="вар ${Н.дни.includes(д) ? 'on' : ''}" onclick="переключить('дни','${д}')">${д}</button>`).join('')}</div>` : ''}
+    ${Н.когда === 'числа' ? `<div class="сетка" style="margin-top:8px">${[...Array(31)].map((_, i) =>
+        `<button class="вар ${Н.числа.includes(String(i + 1)) ? 'on' : ''}" onclick="переключить('числа','${i + 1}')">${i + 1}</button>`).join('')
+        + `<button class="вар ${Н.числа.includes('посл') ? 'on' : ''}" style="grid-column:span 2" onclick="переключить('числа','посл')">посл</button>`}</div>` : ''}
+    <div class="подпись">Во сколько</div>
+    <div class="выбор">${ЧАСТЫЕ.map((в) => `<button class="вар ${в === Н.время ? 'on' : ''}" onclick="поле('время','${в}')">${в}</button>`).join('')}
+      <input class="поле" style="width:120px" type="time" value="${э(Н.время)}" onchange="поле('время',this.value)"></div>
+    <div class="подпись"><button class="вар" onclick="поле('ещё',${!Н.ещё})">${Н.ещё ? '▾' : '▸'} Ещё настройки</button></div>
+    ${Н.ещё ? `<textarea class="поле" rows="2" placeholder="Что считать выполнением" oninput="Н.выполнение=this.value">${э(Н.выполнение)}</textarea>
+      <div class="выбор" style="margin-top:8px">
+        <input class="поле" style="width:150px" placeholder="часов (8)" value="${э(Н.часов)}" oninput="Н.часов=this.value">
+        <button class="вар ${Н.смена === 'слать всё равно' ? 'on' : ''}" onclick="поле('смена', Н.смена === 'слать всё равно' ? '' : 'слать всё равно')">Слать вне смены</button>
+        <button class="вар ${Н.сразу ? 'on' : ''}" onclick="поле('сразу',${!Н.сразу})">Послать сейчас</button>
+      </div>` : ''}
+    ${с.тип === 'разовая' && !с.ошибка ? `<button class="главная ${Н.календарь ? '' : 'синяя'}" style="margin-top:16px" onclick="поле('календарь',${!Н.календарь})">
+        ${Н.календарь ? '📅 В моём календаре ✓ — напомнит за 30 минут' : '📅 Напомнить через календарь'}</button>` : ''}
+    <div class="подпись">Как увидит ${э(Н.кому)}</div>${предпросмотр}
+    ${Н.кому === 'Ильнур' ? `<input type="file" id="файлы" accept="image/*,.pdf,application/pdf" multiple hidden onchange="выбралиФайлы(this)">
+      <button class="главная синяя" style="margin-top:10px" onclick="document.getElementById('файлы').click()">📎 ${Н.файлы.length ? 'Добавить ещё фото или файл' : 'Прикрепить фото или файл'}</button>
+      ${Н.файлы.map((f, i) => `<div class="мета" style="display:flex;align-items:center;gap:8px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${/^image\//.test(f.type) ? '🖼' : '📄'} ${э(f.name)} · ${мб(f.size)}</span><button type="button" class="вар" onclick="убратьФайл(${i})">✖</button></div>`).join('')}
+      ${Н.файлы.length ? `<div class="выбор" style="margin-top:6px"><button class="вар ${Н.толькоФайл ? 'on' : ''}" onclick="поле('толькоФайл',${!Н.толькоФайл})">${Н.толькоФайл ? '✓ Только файл — без текста и кнопок' : '🖼 Только файл, без текста и кнопок'}</button></div>
+        <div class="мета">${Н.толькоФайл ? '🖼 Придёт только ' + (Н.файлы.some((f) => /^image\//.test(f.type)) ? 'картинка' : 'файл') + ' без подписи — отмечать нечего, задача закроется сама. Название, если напишете, видно только в админке' : '📎 Придут перед карточкой: фото — картинкой, PDF — файлом' + (Н.что.trim() ? ', подпись — название' : ', без подписи')}${с.сразу ? '. Задача уйдёт, когда файлы загрузятся' : ''}</div>`
+        : `<div class="выбор" style="margin-top:6px"><button class="вар ${Н.вложение ? 'on' : ''}" onclick="поле('вложение',${!Н.вложение})">${Н.вложение ? '✓ Бот попросит файл в чате после «Создать»' : 'Не выбирается? Бот попросит в чате'}</button></div>`}` : ''}
+    ${Н.вложение && !Н.файлы.length && Н.кому === 'Ильнур' ? `<div class="мета">📎 После «Создать» бот пришлёт вам сообщение — ответьте на него фото или PDF, можно несколько${с.сразу ? '. Задача не уйдёт сразу: когда прикрепите, нажмите там «🚀 Послать сейчас»' : ''}</div>` : ''}
+    ${Н.календарь && с.тип === 'разовая' && !с.ошибка ? `<div class="мета">📅 + событие в вашем календаре ${э(дд(с.дата))} в ${э(с.время)}, напоминание за 30 минут</div>` : ''}
+    <button class="создать" onclick="создать()">Создать задачу</button>`;
+}
+// Текст правим без перерисовки: иначе поле теряет фокус на каждой букве.
+function обновитьПредпросмотр() {
+  const с = строкаЗадачи(); if (с.ошибка) return;
+  const к = document.querySelector('.card.s-Назначена .имя');
+  if (к) к.textContent = Н.что.trim() || 'Что сделать…';
+}
+
+// ── Редактор задачи ──
+// Все поля, которые редактор читает из формы и отдаёт «Задачи: правка» — и видимые, и спрятанные
+// за типом повторения (скрытое поле едет как было). «Позиция» и «Месяцы» — колонки листа, в
+// редакторе их не было, а планировщик по ним считает «день недели месяца» и «смену месяца».
+const ПОЛЯ_ЗАДАЧИ = [['Название', 'text'], ['Исполнитель', 'select:люди'], ['Что считать выполнением', 'textarea'],
+  ['Тип повторения', 'select:типы'], ['Дата / точка отсчёта', 'date'], ['Дни недели', 'text'],
+  ['Числа месяца', 'text'], ['Интервал', 'text'], ['Позиция', 'text'], ['Месяцы', 'text'], ['Время', 'text'], ['Дедлайн (часов)', 'text'],
+  ['Ответ', 'select:нет,текст,число,фото,варианты,форма,только файл'], ['Варианты', 'text'],
+  ['Если не на смене', 'select:,слать всё равно,отдать сменщику'],
+  ['Если просрочена', 'select:,следующая смена'], ['Действует с', 'date'], ['Действует по', 'date'],
+  ['Активна', 'select:да,нет'], ['Комментарий', 'text']];
+const ТИПЫ_ПОВТОРА = ['разовая', 'ежедневно', 'дни недели', 'числа месяца', 'раз в n дней', 'за n рабочих дней до числа',
+  'день недели месяца', 'каждая смена', 'каждая n-я смена', 'смена месяца'];
+// Что спрашивает каждый тип (28.10: раньше редактор показывал все девять полей «когда» разом, и было непонятно,
+// какие из них этот тип вообще читает). Неизвестный тип — все.
+const ПОЛЯ_ТИПА = {
+  'разовая': ['Дата / точка отсчёта'], 'ежедневно': [], 'дни недели': ['Дни недели'], 'числа месяца': ['Числа месяца'],
+  'раз в n дней': ['Интервал', 'Дата / точка отсчёта'], 'за n рабочих дней до числа': ['Интервал', 'Числа месяца'],
+  'день недели месяца': ['Дни недели', 'Позиция'], 'каждая смена': [], 'каждая n-я смена': ['Интервал', 'Дата / точка отсчёта'],
+  'смена месяца': ['Позиция'],
+};
+const ПОДПИСИ_ПОЛЕЙ = {
+  'Что считать выполнением': 'Что считать выполнением', 'Дни недели': 'Дни недели — пн, вт, ср…', 'Числа месяца': 'Числа месяца — 1, 15, посл',
+  'Позиция': 'Какой по счёту — 1, 2, −1 (последний)', 'Месяцы': 'Только в месяцы — 1…12, пусто — все', 'Время': 'Во сколько придёт карточка — 09:00',
+  'Дедлайн (часов)': 'Срок: часов на выполнение или «до 20:00»', 'Варианты': 'Варианты ответа через запятую',
+  'Если не на смене': 'Если человека нет на смене', 'Если просрочена': 'Если просрочена', 'Действует с': 'Действует с',
+  'Действует по': 'Действует по', 'Комментарий': 'Комментарий — виден только вам', 'Исполнитель': 'Кто делает', 'Ответ': 'Что прислать в ответ',
+  'Тип повторения': 'Как повторяется',
+};
+const подписьПоля = (k, тип) => k === 'Дата / точка отсчёта' ? (тип === 'разовая' ? 'Дата' : 'Отсчёт с даты')
+  : k === 'Интервал' ? (тип === 'раз в n дней' ? 'Каждые n дней' : тип === 'каждая n-я смена' ? 'Каждая n-я смена' : тип === 'за n рабочих дней до числа' ? 'За сколько рабочих дней' : 'Интервал')
+  : ПОДПИСИ_ПОЛЕЙ[k] || k;
+function выбратьВариант(b, v) {
+  const группа = b.parentElement; const вход = группа.previousElementSibling; вход.value = v;
+  [...группа.children].forEach((x) => x.classList.toggle('on', x === b));
+  // Форма редактора слушает input: по нему прячутся поля чужого типа и обновляется предпросмотр.
+  вход.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function открытьЗадачу(id) {
+  const z = D.задачи.find((x) => s(x['ID']) === id); if (!z) return сказать('Нет такой задачи: ' + id);
+  const люди = [...new Set(D.сотрудники.map((p) => s(p['Имя'])))];
+  const тип0 = s(z['Тип повторения']).toLowerCase();
+  const поле = ([k, t], малые) => {
+    const v = s(z[k]); const п = подписьПоля(k, тип0);
+    if (t.startsWith('select:')) {
+      // Кнопки вместо выпадающего списка (Ильнур, 27.09); значение — в скрытом
+      // поле, форма читает его как раньше.
+      const opts = t.slice(7) === 'люди' ? [...люди] : t.slice(7) === 'типы' ? [...ТИПЫ_ПОВТОРА] : t.slice(7).split(',');
+      if (!opts.includes(v)) opts.unshift(v);
+      return `<div class="пз" data-поле="${э(k)}"><div class="подпись">${э(п)}</div><input type="hidden" name="${k}" value="${э(v)}"><div class="выбор${малые === false ? '' : ' мал'}" style="margin:4px 0 6px">${opts.map((o) =>
+        `<button type="button" class="вар ${o === v ? 'on' : ''}" onclick="выбратьВариант(this,'${э(o)}')">${э(o) || '—'}</button>`).join('')}</div></div>`;
+    }
+    if (t === 'textarea') return `<div class="пз" data-поле="${э(k)}"><label>${э(п)}<textarea name="${k}" rows="2">${э(v)}</textarea></label></div>`;
+    return `<div class="пз" data-поле="${э(k)}"><label><span class="пп">${э(п)}</span><input name="${k}" type="${t === 'date' ? 'date' : 'text'}" value="${э(v)}"></label></div>`;
+  };
+  const по = Object.fromEntries(ПОЛЯ_ЗАДАЧИ);
+  const ф = (k, малые) => поле([k, по[k]], малые);
+  const раздел = (имя, тело) => `<div class="раздел"><div class="подпись">${имя}</div>${тело}</div>`;
+  const активна = s(z['Активна']).toLowerCase() === 'да' ? 'да' : 'нет';
+  const ещёЗаполнено = ['Действует с', 'Действует по', 'Комментарий', 'Месяцы'].some((k) => s(z[k]));
+  const d = document.getElementById('dlg');
+  d.innerHTML = `<form method="dialog">
+    <div class="заголовок-ряд"><div class="заголовок">${э(id)}</div>
+      <input type="hidden" name="Активна" value="${активна}"><div class="выбор тумблер">
+        <button type="button" class="вар ${активна === 'да' ? 'on' : ''}" onclick="выбратьВариант(this,'да')">✓ Включена</button>
+        <button type="button" class="вар нет ${активна === 'нет' ? 'on' : ''}" onclick="выбратьВариант(this,'нет')">⏸ Пауза</button></div></div>
+    ${раздел('Что', ф('Название') + ф('Что считать выполнением') + галерея(id))}
+    ${раздел('Кому', ф('Исполнитель') + ф('Если не на смене'))}
+    ${раздел('Когда', ф('Тип повторения') + ['Дата / точка отсчёта', 'Дни недели', 'Числа месяца', 'Интервал', 'Позиция'].map((k) => ф(k)).join('')
+      + ф('Время') + ф('Дедлайн (часов)') + ф('Если просрочена') + '<div class="пред" id="предЗадачи"></div>')}
+    ${раздел('Отчёт', ф('Ответ') + ф('Варианты'))}
+    <details class="раздел"${ещёЗаполнено ? ' open' : ''}><summary>Ещё</summary>${ф('Действует с') + ф('Действует по') + ф('Месяцы') + ф('Комментарий')}</details>
+    <div class="низ"><button value="cancel">Отмена</button><button class="да" value="ok">Сохранить</button></div></form>`;
+  const форма = d.querySelector('form');
+  // Поля чужого типа прячутся, подписи даты и интервала меняются по типу, под «Когда» — расписание словами.
+  const обновить = () => {
+    const f = new FormData(форма); const z2 = {}; for (const [k] of ПОЛЯ_ЗАДАЧИ) z2[k] = f.get(k) ?? '';
+    const тип = s(z2['Тип повторения']).toLowerCase(); const нужны = ПОЛЯ_ТИПА[тип];
+    for (const k of ['Дата / точка отсчёта', 'Дни недели', 'Числа месяца', 'Интервал', 'Позиция']) {
+      const блок = форма.querySelector(`.пз[data-поле="${CSS.escape(k)}"]`); if (!блок) continue;
+      блок.classList.toggle('скрыто', !!нужны && !нужны.includes(k));
+      const пп = блок.querySelector('.пп'); if (пп) пп.textContent = подписьПоля(k, тип);
+    }
+    const вар = форма.querySelector('.пз[data-поле="Варианты"]');
+    if (вар) вар.classList.toggle('скрыто', !['варианты', 'форма', 'число'].includes(s(z2['Ответ']).toLowerCase()) && !s(z2['Варианты']));
+    const ч = s(z2['Дедлайн (часов)']);
+    const строка = [расписание(z2) + (s(z2['Время']) ? ' в ' + s(z2['Время']) : ''), /^до/i.test(ч) ? 'срок ' + ч : ч ? 'срок ' + ч + ' ч' : '',
+      s(z2['Если просрочена']) === 'следующая смена' ? 'просрочена → на следующую смену' : ''].filter(Boolean).join(' · ');
+    const пред = форма.querySelector('#предЗадачи');
+    if (пред) пред.textContent = (s(z2['Активна']) === 'да' ? '📅 ' : '⏸ Выключена · ') + строка;
+  };
+  форма.oninput = обновить; обновить();
+  d.onclick = null;
+  d.onclose = () => {
+    if (d.returnValue !== 'ok') return;
+    const f = new FormData(форма); const поля = {};
+    for (const [k] of ПОЛЯ_ЗАДАЧИ) поля[k] = f.get(k) ?? '';
+    правитьЗадачу(id, поля);
+  };
+  d.showModal();
+  подгрузитьФото(d);
+}
+
+// ── «Скоро» — тот же код планировщика, что стоит в n8n ──
+function прогон(д) {
+  const $ = (имя) => { if (!(имя in D)) throw new Error('нет ' + имя); return { all: () => D[имя].map((json) => ({ json })) }; };
+  const DT = new Proxy(DateTime, { get(t, p) { return p === 'now' ? () => д.setZone(TZ).set({ hour: 8 }) : t[p]; } });
+  try { return new Function('$', 'DateTime', ПЛАНИРОВЩИК || 'return [];')($, DT).map((x) => x.json); }
+  catch (e) { return []; }
+}
+
+function render() {
+  D.Задачи = D.задачи; D.Сотрудники = D.сотрудники; D['График смен'] = D.график; D.Журнал = D.журнал;
+  // «Настройки» не читаем ради экономии запросов — планировщику хватит горизонта.
+  D.Настройки = [{ 'Ключ': 'Горизонт переноса (дней)', 'Значение': '14' },
+                 { 'Ключ': 'Напоминать до дедлайна (часов)', 'Значение': '2' }];
+  document.getElementById('main').innerHTML =
+    { дела: vДела, скоро: vСкоро, задачи: vЗадачи, я: vЯ, новая: vНовая }[вкладка]();
+  бейджиВкладок();
+  подгрузитьФото();
+}
+// Цифры на вкладках и время данных у «⟳» (28.10): «Дела» — просрочено (красным) или на приёмку (жёлтым), «Я» — хвосты.
+function бейджиВкладок() {
+  const бдж = (вкл, n, c) => {
+    const b = document.querySelector(`.tabs button[data-t="${вкл}"]`); if (!b) return;
+    let i = b.querySelector('.бдж');
+    if (!n) { if (i) i.remove(); return; }
+    if (!i) { i = document.createElement('i'); b.appendChild(i); }
+    i.className = 'бдж ' + c; i.textContent = n;
+  };
+  const т = сегодня();
+  document.getElementById('тОбновлено').textContent = D.загружено && D.сейчас ? когдаСнимок(D.сейчас) : '—';
+  if (!D.загружено) return;
+  const просрочено = D.журнал.filter((r) => !ЗАКРЫТЫ.includes(s(r['Статус'])) && день(r) && день(r) < т).length;
+  const приёмка = D.журнал.filter((r) => (s(r['Статус']) === 'Выполнена' || s(r['Статус']) === 'Проблема') && s(r['Исполнитель']) !== 'Ильнур').length;
+  бдж('дела', просрочено || приёмка, просрочено ? '' : 'warn');
+  бдж('я', D.журнал.filter((r) => s(r['Исполнитель']) === 'Ильнур' && !ЗАКРЫТЫ.includes(s(r['Статус'])) && день(r) && день(r) < т).length, '');
+}
+document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === вкладка));
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'кОбновить') { обновить(); return; }
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  вкладка = b.dataset.t;
+  // Ушли с «Новой» до загрузки таблиц — остальным вкладкам без данных нечего показать.
+  if (!D.загружено && вкладка !== 'новая') { состояние('загружаю…'); load(); return; }
+  render();
+});
+// Пока на экране снимок, кнопки действий (⋯, «Сделал», «Принять», «Создать», ссылки) не работают:
+// через секунду придут свежие данные, и правка уйдёт по ним. Фильтры и вкладки — можно.
+document.getElementById('main').addEventListener('click', (e) => {
+  if (!D.снимок) return;
+  if (!e.target.closest('.ещё, .главная, .кнопка, .создать, a, .card button')) return;
+  e.preventDefault(); e.stopPropagation();
+  состояние('секунду — сверяюсь с таблицей, потом нажмите ещё раз');
+}, true);
+if (РЕЖИМ === 'pages' && !ПЛАНИРОВЩИК) кодССервера('');   // первый заход на этом телефоне — код планировщика с сервера
+if (вкладка === 'новая') { render(); состояние('загружаю таблицы…'); load(true).then(() => { if (D.загружено) состояние(''); }); }
+else { снимок(); load(); }
+</script>
+</body>
+</html>
