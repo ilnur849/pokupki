@@ -15,11 +15,11 @@
 <!-- Скрипт Telegram — своя копия рядом (telegram.org без VPN в России часто недоступен, и страница висела бы
      на нём белым экраном), грузится не блокируя. Подпись (initData) уже взята из адреса выше; скрипт ждём не
      дольше 2,5 с. Обновлять копию: curl -o страница/telegram-web-app.js https://telegram.org/js/telegram-web-app.js -->
-<script src="telegram-web-app.js?v=cd344eeb4a" async
+<script src="telegram-web-app.js?v=058fde698f" async
   onload="window.ТГ_ЗАГРУЖЕН = true; if (window.ЗАПУСК) window.ЗАПУСК();"
   onerror="window.ТГ_ОШИБКА = true; if (window.ЗАПУСК) window.ЗАПУСК();"></script>
-<script src="config.js?v=cd344eeb4a"></script>
-<script src="logika.js?v=cd344eeb4a"></script>
+<script src="config.js?v=058fde698f"></script>
+<script src="logika.js?v=058fde698f"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -101,6 +101,8 @@
   .очистить-кн { flex: none; margin-right: 10px; border: 1px solid var(--line); background: transparent; color: var(--text);
     border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
   .пусто { text-align: center; color: var(--hint); padding: 48px 28px; }
+  /* 04.11: пока не пришёл свежий список, на экране снимок прошлого захода — бледно и с «обновляю…» */
+  #список.устарело { opacity: .55; transition: opacity .2s; }
   .пусто b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
   .статус { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom));
     background: rgba(28, 30, 34, .9); color: #fff; font-size: 14px; padding: 8px 14px;
@@ -187,6 +189,9 @@ function главное() {
   var виденныеПрежде = хранить.взять(ВИДЕННЫЕ, null);
   var ошибка = '';                                  // нет доступа / не подключено — показываем вместо списка
   var отправляю = false, связь = true;
+  // Свежий ли список на экране (04.11, Ильнур: «отметил в виджете, а тут висит» — страница сперва рисует снимок
+  // прошлого захода, и 2–5 секунд он выглядел как настоящий): до первого ответа скрипта — «🔄 Обновляю…».
+  var свежий = false;
 
   function вибро(вид) { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(вид || 'light'); } catch (e) { /* нет */ } }
   var таймерСтатуса;
@@ -247,6 +252,7 @@ function главное() {
   function нарисовать() {
     var с = вид();
     var список = $('список');
+    список.classList.toggle('устарело', !!сервер && !свежий && !ошибка);
     var активные = с.позиции.filter(function (x) { return !x.куплено; });
     var купленные = с.позиции.filter(function (x) { return x.куплено; });
     var дела = активные.filter(function (x) { return x.группа === ГРУППА_ДЕЛ; }).length;
@@ -341,6 +347,7 @@ function главное() {
   function принять(ответ) {
     if (ответ && ответ.ок) {
       ошибка = '';
+      if (!свежий) { свежий = true; if ($('статус').classList.contains('обновляю')) { $('статус').classList.remove('обновляю'); статус(''); } }
       сервер = { позиции: ответ.позиции || [], подсказки: ответ.подсказки || [], группы: ответ.группы || ГРУППЫ, я: ответ.я };
       хранить.положить(КЭШ, сервер);
       return true;
@@ -487,6 +494,7 @@ function главное() {
   else if (!API) ошибка = 'Список ещё не подключён к таблице — скоро заработает.';
   нарисовать();
   if (!ошибка) {
+    if (сервер && !свежий) { статус('🔄 Обновляю список…', true); $('статус').classList.add('обновляю'); }
     if (очередь.length) отправить(); else обновить();
     setInterval(обновить, 10000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { отправить(); обновить(); } });
